@@ -1,0 +1,84 @@
+//-----------------------------------------------------------------//
+//     ____                    ______ __  __  ____  _  ________    //
+//    / __ \                  /  ___ |  \/  |/ __ \| |/ /  ____|   //
+//   | |  | |_ __   ___ _ __ |  (___ | \  / | |  | | ' /| |__      //
+//   | |  | | '_ \ / _ \ '_ \ \___  \| |\/| | |  | |  < |  __|     //
+//   | |__| | |_) |  __/ | | |____)  | |  | | |__| | . \| |____    //
+//    \____/| .__/ \___|_| |_|______/|_|  |_|\____/|_|\_\______|   //
+//         | |                                                     //
+//         |_|                                                     //
+//                                                                 //
+//                http://www.opensmoke.polimi.it/                  //
+//             http://creckmodeling.chem.polimi.it/                //
+//-----------------------------------------------------------------//
+
+Dictionary Optimizer
+{
+		@KineticsFolder				../kinetic-mechanisms/virtual-chemistry-NO/2018.06.19/mechanism/kinetics;
+
+		@VirtualChemistry			virtual-chemistry;
+		
+		@RelativeErrors				true;
+		@Algorithm 					OpenSMOKEpp-Simplex;
+		@MaxIterations				100000;
+		
+		@OptimizationTarget			NO;
+		
+		@ListOfExperiments			premixed-1dflames/flame.long.phi100.dic;
+
+		@ListOfParameters			0 1 2 3;
+		@ListOfAbsoluteMinima		1.538479670000e+17 1.02585215101e+17 3.78244773963e+22 4.289769943040e+14;
+		@ListOfAbsoluteMaxima		1.538479670000e+19 1.02585215101e+19 3.78244773963e+24 4.289769943040e+16;
+		
+		//A3_NO_ = 1.538479670000e+18;		// #0
+		//A4_NO_ = 1.02585215101e+18;		// #1
+		//A5_NO_ = 3.78244773963e+23;		// #2
+		//A6_NO_ = 4.28976994304e+15;		// #3
+		//A7_NO_ = 3.6824286216e+22;		// #4
+
+		//E3_NO_ = 35075.1745;				// #5
+		//E4_NO_ = 53481.7191441;			// #6
+		//E5_NO_ = 205069.181216;			// #7
+		//E6_NO_ = 175095.668571;			// #8
+		//E7_NO_ = 46937.7896765;			// #9
+		//Kc5_NO_ = 7.673468E-03;			// #10
+
+		//alpha_NO_ = 0.1;					// #11
+		//beta_NO_ = 1.930774E-03;			// #12
+		//gamma_NO_ = 0.;					// #13
+
+		//nuF_3_NO_ = 1.70998297;			// #14
+		//nuOX_3_NO_ = 0.86862947;			// #15
+		//nuW1_4_NO_ = 2.50166936612;		// #16
+		//nuNO_5f_NO_ = 0.0301176170605;	// #17
+		//nuW2_5f_NO_ = 2.03383424099;		// #18
+		//nuNO_5b_NO_ = 1.03011761706;		// #19
+		//nuW2_5b_NO_ = 1.03383424099;		// #20
+		//nuW3_6_NO_ = 0.400450422151;		// #21
+		//nuW3_7_NO_ = 2.76521242592;		// #22
+}
+
+Dictionary virtual-chemistry
+{
+	@Version	170911;
+	@Reactions	true;
+
+	@FuelName		FUEL;
+	@FuelMW			16.043000	kg/kmol;
+	@OxidizerName	OX;
+	@OxidizerMW		31.997999	kg/kmol;
+	@InertName		N2;
+	@InertMW		28.014000	kg/kmol;
+	
+	@Viscosity_mu0			1.8405e-5 kg/m/s;
+	@Viscosity_T0			300. K;
+	@Viscosity_Beta0		0.6759;
+	@Viscosity_Pr0			0.70;
+	
+	@SubMechanism_CO		false;
+	@SubMechanism_NO		true;
+
+	@Table				../kinetic-mechanisms/virtual-chemistry-main/2017.09.11/tables/2S_tabulated_data.dat;
+	@Table_NO			../kinetic-mechanisms/virtual-chemistry-NO/2018.06.19/tables/2S_tabulated_data_NO.dat;
+}
+
