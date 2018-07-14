@@ -1,0 +1,13 @@
+#Compulsory path
+export EIGEN_LIBRARY_PATH=/software/chimica2/libraries/eigen/eigen-3.3.4
+export BOOST_LIBRARY_PATH=/software/chimica2/libraries/boost/boost-1.65.1-gcc-6.3.0
+export RAPIDXML_LIBRARY_PATH=/software/chimica2/libraries/rapidxml/rapidxml-1.13
+export NLOPT_LIBRARY_PATH=/software/chimica2/libraries/nlopt/nlopt-2.4.2
+
+#Options
+export MKL_SUPPORT='-DOPENSMOKE_USE_MKL=1'
+
+#Only if the OPENSMOKE_USE_MKL is turned on
+export MKL_PATH=$HOME/intel/mkl
+export MKL_LIBS='-Wl,--start-group $(MKL_PATH)/lib/intel64/libmkl_intel_lp64.a $(MKL_PATH)/lib/intel64/libmkl_core.a $(MKL_PATH)/lib/intel64/libmkl_sequential.a -Wl,--end-group -lpthread -lm'
+
