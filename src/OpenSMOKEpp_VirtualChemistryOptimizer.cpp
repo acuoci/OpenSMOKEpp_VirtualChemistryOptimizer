@@ -52,20 +52,18 @@
 
 // Optimizer
 #include "Grammar_VirtualChemistryOptimizer.h"
+#include "math/native-minimization-solvers/MinimizationSimplex.h"
 
 // Reactors/Flames
 #include "pfr/PlugFlowReactorExperiment.h"
 #include "premixed-1dflame/Premixed1DFlameExperiment.h"
 
-#include "BzzMath.hpp"
 
-
-
-void FromMinimizationParametersToRealParameters(const BzzVector& b, Eigen::VectorXd& parameters, const std::vector<bool>& flag);
-void FromRealParametersToMinimizationParameters(const Eigen::VectorXd& parameters, BzzVector& b, BzzVector& bMin, BzzVector& bMax, const std::vector<bool>& flag);
+void FromMinimizationParametersToRealParameters(const Eigen::VectorXd& b, Eigen::VectorXd& parameters, const std::vector<bool>& flag);
+void FromRealParametersToMinimizationParameters(const Eigen::VectorXd& parameters, Eigen::VectorXd& b, Eigen::VectorXd& bMin, Eigen::VectorXd& bMax, const std::vector<bool>& flag);
 void WriteTables(const Eigen::VectorXd& parameters, const std::vector<bool>& flag);
 
-double OptFunction(BzzVector &b);
+double OptFunction(const Eigen::VectorXd& b);
 double NLOptFunction(unsigned n, const double *x, double *grad, void *my_func_data);
 
 OpenSMOKE::VirtualChemistry* virtual_chemistry;
@@ -262,7 +260,7 @@ int main(int argc, char** argv)
 		dictionaries(main_dictionary_name_).ReadBool("@RelativeErrors", obj_function_relative_errors);
 
 	// Algorithm
-	std::string algorithm = "BzzMath";
+	std::string algorithm = "OpenSMOKEpp-Simplex";
 	if (dictionaries(main_dictionary_name_).CheckOption("@Algorithm") == true)
 		dictionaries(main_dictionary_name_).ReadString("@Algorithm", algorithm);
 
@@ -333,22 +331,22 @@ int main(int argc, char** argv)
 		WriteTables(parameters0, flag);
 
 		// Get minimization parameters
-		BzzVector b0(numP), bMin(numP), bMax(numP);
+		Eigen::VectorXd b0(numP), bMin(numP), bMax(numP);
 		FromRealParametersToMinimizationParameters(parameters0, b0, bMin, bMax, flag);
 
 		// Print data on screen
 		std::cout << "Parameters: " << std::endl;
 		for (unsigned int i = 0; i < numP; i++)
-			std::cout << i << " " << parameters0(i) << " " << b0[i+1] << " " << bMin[i+1] << " " << bMax[i+1] << std::endl;
+			std::cout << i << " " << parameters0(i) << " " << b0(i) << " " << bMin(i) << " " << bMax(i) << std::endl;
 
 		// Check
 		for (unsigned int i = 0; i < numP; i++)
 		{
-			if (bMin[i+1] >= bMax[i + 1])
+			if (bMin(i) >= bMax(i))
 				OpenSMOKE::FatalErrorMessage("Error in min/max constraints: min > max");
-			if (b0[i + 1] <= bMin[i + 1])
+			if (b0(i) <= bMin(i))
 				OpenSMOKE::FatalErrorMessage("Error in min/max constraints: first guess value <= min");
-			if (b0[i + 1] <= bMin[i + 1])
+			if (b0(i) <= bMin(i))
 				OpenSMOKE::FatalErrorMessage("Error in min/max constraints: first guess value >= max");
 		}
 
@@ -358,25 +356,25 @@ int main(int argc, char** argv)
 		fMonitoring.open("log", std::ios::out);
 		fMonitoring.setf(std::ios::scientific);
 
-		if(algorithm == "BzzMath")
+		if(algorithm == "OpenSMOKEpp-Simplex")
 		{
 			// Initialize the optimization
-			BzzMinimizationRobust mr;
+			OpenSMOKE::MinimizationSimplex mr;
 			mr(b0, OptFunction, bMin, bMax);
 			
 			// Write initial parameters on file
-			b0.BzzPrint("Starting %e", b0);
+			// b0.BzzPrint("Starting %e", b0);
 			
 			// Solve the optimization
 			mr();
 
 			// Write detailed summary on file
-			mr.BzzPrint("Optimization results");
+			// mr.BzzPrint("Optimization results");
 
 			// Convert optimization parameters in real parameters
 			Eigen::VectorXd parametersOpt(numP);
-			BzzVector bOpt(numP);
-			mr.GetSolution(&bOpt);
+			Eigen::VectorXd bOpt(numP);
+			mr.GetSolution(bOpt);
 			FromMinimizationParametersToRealParameters(bOpt, parametersOpt, flag);
 
 			// Write on the screen
@@ -402,9 +400,9 @@ int main(int argc, char** argv)
 			double* x  = new double[numP];// first guess
 			for (unsigned int i = 0; i < numP; i++)
 			{
-				lb[i] = bMin[i+1];
-				ub[i] = bMax[i+1];
-				x[i]  = b0[i+1];
+				lb[i] = bMin(i);
+				ub[i] = bMax(i);
+				x[i]  = b0(i);
 			}
 
 			nlopt_opt opt;
@@ -427,9 +425,9 @@ int main(int argc, char** argv)
 			}
 			else
 			{
-				BzzVector bOpt(numP);
+				Eigen::VectorXd bOpt(numP);
 				for (unsigned int i = 0; i < numP; i++)
-					bOpt[i + 1] = x[i];
+					bOpt(i) = x[i];
 
 				const double fOpt = OptFunction(bOpt);
 
@@ -517,9 +515,9 @@ double ReturnObjFunction(const Eigen::VectorXd parameters)
 	}
 }
 
-double OptFunction(BzzVector &b)
+double OptFunction(const Eigen::VectorXd &b)
 {
-	Eigen::VectorXd parameters(b.Size());
+	Eigen::VectorXd parameters(b.size());
 	FromMinimizationParametersToRealParameters(b, parameters, flag);
 
 	virtual_chemistry->SetParameters(parameters, flag);
@@ -540,11 +538,11 @@ double NLOptFunction(unsigned n, const double *x, double *grad, void *my_func_da
 		exit(-1);
 	}
 
-	BzzVector b(numP);
+	Eigen::VectorXd b(numP);
 	for (unsigned int i = 0; i < numP; i++)
-		b[i + 1] = x[i];
+		b(i) = x[i];
 
-	Eigen::VectorXd parameters(b.Size());
+	Eigen::VectorXd parameters(b.size());
 	FromMinimizationParametersToRealParameters(b, parameters, flag);
 
 	virtual_chemistry->SetParameters(parameters, flag);
@@ -552,7 +550,7 @@ double NLOptFunction(unsigned n, const double *x, double *grad, void *my_func_da
 	return ReturnObjFunction(parameters);
 }
 
-void FromMinimizationParametersToRealParameters(const BzzVector& b, Eigen::VectorXd& parameters, const std::vector<bool>& flag)
+void FromMinimizationParametersToRealParameters(const Eigen::VectorXd& b, Eigen::VectorXd& parameters, const std::vector<bool>& flag)
 {
 	unsigned int k = 0;
 
@@ -561,7 +559,7 @@ void FromMinimizationParametersToRealParameters(const BzzVector& b, Eigen::Vecto
 		for (unsigned int j = 0; j < 4; j++)	// alpha1-4 
 			if (flag[j] == true)
 			{
-				parameters(k) = b[k + 1];
+				parameters(k) = b(k);
 				k++;
 			}
 	}
@@ -574,40 +572,40 @@ void FromMinimizationParametersToRealParameters(const BzzVector& b, Eigen::Vecto
 		for (unsigned int j = 0; j < 5; j++)	// A3_NO_, A4_NO_, A5_NO_, A6_NO_, A7_NO_ 
 			if (flag[j] == true)
 			{
-				parameters(k) = std::exp(b[k + 1]);
+				parameters(k) = std::exp(b(k));
 				k++;
 			}
 
 		for (unsigned int j = 5; j < 10; j++)	// E3_NO_, E4_NO_, E5_NO_, E6_NO_, E7_NO_ 
 			if (flag[j] == true)
 			{
-				parameters(k) = b[k + 1] * Rgas;
+				parameters(k) = b(k) * Rgas;
 				k++;
 			}
 
 		if (flag[10] == true)				// Kc5_NO_
 		{
-			parameters(k) = std::exp(b[k + 1]);
+			parameters(k) = std::exp(b(k));
 			k++;
 		}
 
 		for (unsigned int j = 11; j < 14; j++)	// alpha_NO, beta_NO_, gamma_NO_ 
 			if (flag[j] == true)
 			{
-				parameters(k) = b[k + 1];
+				parameters(k) = b(k);
 				k++;
 			}
 
 		for (unsigned int j = 14; j < 23; j++)	// reaction orders
 			if (flag[j] == true)
 			{
-				parameters(k) = b[k + 1];
+				parameters(k) = b(k);
 				k++;
 			}
 	}
 }
 
-void FromRealParametersToMinimizationParameters(const Eigen::VectorXd& parameters, BzzVector& b, BzzVector& bMin, BzzVector& bMax, const std::vector<bool>& flag)
+void FromRealParametersToMinimizationParameters(const Eigen::VectorXd& parameters, Eigen::VectorXd& b, Eigen::VectorXd& bMin, Eigen::VectorXd& bMax, const std::vector<bool>& flag)
 {
 	unsigned int k = 0;
 
@@ -616,15 +614,15 @@ void FromRealParametersToMinimizationParameters(const Eigen::VectorXd& parameter
 		for (unsigned int j = 0; j < 4; j++)	// alpha1-4
 			if (flag[j] == true)
 			{
-				b[k + 1] = parameters(k);
+				b(k) = parameters(k);
 
-				if (list_of_relative_minima.size() != 0)		bMin[k + 1] = parameters(k) * list_of_relative_minima[k];
-				else if (list_of_absolute_minima.size() != 0)	bMin[k + 1] = list_of_absolute_minima[k];
-				else                                            bMin[k + 1] = 0.;
+				if (list_of_relative_minima.size() != 0)		bMin(k) = parameters(k) * list_of_relative_minima[k];
+				else if (list_of_absolute_minima.size() != 0)	bMin(k) = list_of_absolute_minima[k];
+				else                                            bMin(k) = 0.;
 
-				if (list_of_relative_maxima.size() != 0)		bMax[k + 1] = parameters(k)* list_of_relative_maxima[k];
-				else  if (list_of_absolute_maxima.size() != 0)	bMax[k + 1] = list_of_absolute_maxima[k];
-				else                                            bMax[k + 1] = 1.;
+				if (list_of_relative_maxima.size() != 0)		bMax(k) = parameters(k)* list_of_relative_maxima[k];
+				else  if (list_of_absolute_maxima.size() != 0)	bMax(k) = list_of_absolute_maxima[k];
+				else                                            bMax(k) = 1.;
 
 				k++;
 			}
@@ -638,15 +636,15 @@ void FromRealParametersToMinimizationParameters(const Eigen::VectorXd& parameter
 		for (unsigned int j = 0; j < 5; j++)	// A3_NO_, A4_NO_, A5_NO_, A6_NO_, A7_NO_ 
 			if (flag[j] == true)
 			{
-				b[k + 1] = std::log(parameters(k));
+				b(k) = std::log(parameters(k));
 				
-				if (list_of_relative_minima.size() != 0)		bMin[k + 1] = std::log(parameters(k) * list_of_relative_minima[k]);
-				else if (list_of_absolute_minima.size() != 0)	bMin[k + 1] = std::log(list_of_absolute_minima[k]);
-				else                                            bMin[k + 1] = std::log(parameters(k) / 1000.);
+				if (list_of_relative_minima.size() != 0)		bMin(k) = std::log(parameters(k) * list_of_relative_minima[k]);
+				else if (list_of_absolute_minima.size() != 0)	bMin(k) = std::log(list_of_absolute_minima[k]);
+				else                                            bMin(k) = std::log(parameters(k) / 1000.);
 
-				if (list_of_relative_maxima.size() != 0)		bMax[k + 1] = std::log(parameters(k) * list_of_relative_maxima[k]);
-				else  if (list_of_absolute_maxima.size() != 0)	bMax[k + 1] = std::log(list_of_absolute_maxima[k]);
-				else                                            bMax[k + 1] = std::log(parameters(k) * 1000.);
+				if (list_of_relative_maxima.size() != 0)		bMax(k) = std::log(parameters(k) * list_of_relative_maxima[k]);
+				else  if (list_of_absolute_maxima.size() != 0)	bMax(k) = std::log(list_of_absolute_maxima[k]);
+				else                                            bMax(k) = std::log(parameters(k) * 1000.);
 
 				k++;
 			}
@@ -654,15 +652,15 @@ void FromRealParametersToMinimizationParameters(const Eigen::VectorXd& parameter
 		for (unsigned int j = 5; j < 10; j++)	// E3_NO_, E4_NO_, E5_NO_, E6_NO_, E7_NO_ 
 			if (flag[j] == true)
 			{
-				b[k + 1] = parameters(k) / Rgas;
+				b(k) = parameters(k) / Rgas;
 
-				if (list_of_relative_minima.size() != 0)		bMin[k + 1] = (parameters(k) / Rgas) * list_of_relative_minima[k];
-				else if (list_of_absolute_minima.size() != 0)	bMin[k + 1] = list_of_absolute_minima[k] / Rgas;
-				else                                            bMin[k + 1] = (parameters(k) / Rgas) / 1.3;
+				if (list_of_relative_minima.size() != 0)		bMin(k) = (parameters(k) / Rgas) * list_of_relative_minima[k];
+				else if (list_of_absolute_minima.size() != 0)	bMin(k) = list_of_absolute_minima[k] / Rgas;
+				else                                            bMin(k) = (parameters(k) / Rgas) / 1.3;
 
-				if (list_of_relative_maxima.size() != 0)		bMax[k + 1] = (parameters(k) / Rgas) * list_of_relative_maxima[k];
-				else  if (list_of_absolute_maxima.size() != 0)	bMax[k + 1] = list_of_absolute_maxima[k] / Rgas;
-				else                                            bMax[k + 1] = (parameters(k) / Rgas) * 1.3;
+				if (list_of_relative_maxima.size() != 0)		bMax(k) = (parameters(k) / Rgas) * list_of_relative_maxima[k];
+				else  if (list_of_absolute_maxima.size() != 0)	bMax(k) = list_of_absolute_maxima[k] / Rgas;
+				else                                            bMax(k) = (parameters(k) / Rgas) * 1.3;
 				
 				k++;
 			}
@@ -670,15 +668,15 @@ void FromRealParametersToMinimizationParameters(const Eigen::VectorXd& parameter
 
 		if (flag[10] == true)				// Kc5_NO_
 		{
-			b[k + 1] = std::log(parameters(k));
+			b(k) = std::log(parameters(k));
 
-			if (list_of_relative_minima.size() != 0)		bMin[k + 1] = std::log(parameters(k) * list_of_relative_minima[k]);
-			else if (list_of_absolute_minima.size() != 0)	bMin[k + 1] = std::log(list_of_absolute_minima[k]);
-			else                                            bMin[k + 1] = std::log(parameters(k) / 1000.);
+			if (list_of_relative_minima.size() != 0)		bMin(k) = std::log(parameters(k) * list_of_relative_minima[k]);
+			else if (list_of_absolute_minima.size() != 0)	bMin(k) = std::log(list_of_absolute_minima[k]);
+			else                                            bMin(k) = std::log(parameters(k) / 1000.);
 
-			if (list_of_relative_maxima.size() != 0)		bMax[k + 1] = std::log(parameters(k) * list_of_relative_maxima[k]);
-			else  if (list_of_absolute_maxima.size() != 0)	bMax[k + 1] = std::log(list_of_absolute_maxima[k]);
-			else                                            bMax[k + 1] = std::log(parameters(k) * 1000.);
+			if (list_of_relative_maxima.size() != 0)		bMax(k) = std::log(parameters(k) * list_of_relative_maxima[k]);
+			else  if (list_of_absolute_maxima.size() != 0)	bMax(k) = std::log(list_of_absolute_maxima[k]);
+			else                                            bMax(k) = std::log(parameters(k) * 1000.);
 
 			k++;
 		}
@@ -686,15 +684,15 @@ void FromRealParametersToMinimizationParameters(const Eigen::VectorXd& parameter
 		for (unsigned int j = 11; j < 14; j++)	// alpha_NO, beta_NO_, gamma_NO_ 
 			if (flag[j] == true)
 			{
-				b[k + 1] = parameters(k);
+				b(k) = parameters(k);
 
-				if (list_of_relative_minima.size() != 0)		bMin[k + 1] = parameters(k) * list_of_relative_minima[k];
-				else if (list_of_absolute_minima.size() != 0)	bMin[k + 1] = list_of_absolute_minima[k];
-				else                                            bMin[k + 1] = 0.;
+				if (list_of_relative_minima.size() != 0)		bMin(k) = parameters(k) * list_of_relative_minima[k];
+				else if (list_of_absolute_minima.size() != 0)	bMin(k) = list_of_absolute_minima[k];
+				else                                            bMin(k) = 0.;
 
-				if (list_of_relative_maxima.size() != 0)		bMax[k + 1] = parameters(k)* list_of_relative_maxima[k];
-				else  if (list_of_absolute_maxima.size() != 0)	bMax[k + 1] = list_of_absolute_maxima[k];
-				else                                            bMax[k + 1] = 1.;
+				if (list_of_relative_maxima.size() != 0)		bMax(k) = parameters(k)* list_of_relative_maxima[k];
+				else  if (list_of_absolute_maxima.size() != 0)	bMax(k) = list_of_absolute_maxima[k];
+				else                                            bMax(k) = 1.;
 
 				k++;
 			}
@@ -702,15 +700,15 @@ void FromRealParametersToMinimizationParameters(const Eigen::VectorXd& parameter
 		for (unsigned int j = 14; j < 23; j++)	// reaction orders
 			if (flag[j] == true)
 			{
-				b[k + 1] = parameters(k);
+				b(k) = parameters(k);
 
-				if (list_of_relative_minima.size() != 0)		bMin[k + 1] = parameters(k) * list_of_relative_minima[k];
-				else if (list_of_absolute_minima.size() != 0)	bMin[k + 1] = list_of_absolute_minima[k];
-				else                                            bMin[k + 1] = -1.;
+				if (list_of_relative_minima.size() != 0)		bMin(k) = parameters(k) * list_of_relative_minima[k];
+				else if (list_of_absolute_minima.size() != 0)	bMin(k) = list_of_absolute_minima[k];
+				else                                            bMin(k) = -1.;
 
-				if (list_of_relative_maxima.size() != 0)		bMax[k + 1] = parameters(k)* list_of_relative_maxima[k];
-				else  if (list_of_absolute_maxima.size() != 0)	bMax[k + 1] = list_of_absolute_maxima[k];
-				else                                            bMax[k + 1] = 3.;
+				if (list_of_relative_maxima.size() != 0)		bMax(k) = parameters(k)* list_of_relative_maxima[k];
+				else  if (list_of_absolute_maxima.size() != 0)	bMax(k) = list_of_absolute_maxima[k];
+				else                                            bMax(k) = 3.;
 
 				k++;
 			}

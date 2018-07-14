@@ -104,7 +104,7 @@ namespace OpenSMOKE
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Algorithm",
 				OpenSMOKE::SINGLE_STRING,
-				"Algorithm BzzMath | LN_COBYLA | GN_DIRECTA | GN_CRS2_LM (default: BzzMath)",
+				"Algorithm OpenSMOKEpp-Simplex | LN_COBYLA | GN_DIRECTA | GN_CRS2_LM (default: OpenSMOKEpp-Simplex)",
 				true));
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@OptimizationTarget",
@@ -112,7 +112,6 @@ namespace OpenSMOKE
 				"Optimization target: main | CO | NO (default: main)",
 				true));
 
-			
 		}
 	};
 }
