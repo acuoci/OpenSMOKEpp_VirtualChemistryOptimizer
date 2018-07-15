@@ -31,7 +31,7 @@ Dictionary PremixedLaminarFlame1D
 
 	@Optimization		optimization;
 	
-	@Backup        		premixed-1dflames/flame.long.phi100.backup.xml;
+	@Backup        		premixed-1dflames/flame.phi100.backup.xml;
 }
 
 Dictionary inlet-stream
