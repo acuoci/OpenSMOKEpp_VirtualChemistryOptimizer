@@ -56,9 +56,12 @@
 #include "utilities/grids/adaptive/Grammar_Grid1D.h"
 #include "utilities/grids/adaptive/Adapter_Grid1D.h"
 
+// Dynamic boundaries
+#include "dynamics/DynamicBoundaries.h"
+
 // Laminar Flame 1D
-#include "premixedlaminarflame1d/Grammar_PremixedLaminarFlame1D.h"
-#include "premixedlaminarflame1d/OpenSMOKE_PremixedLaminarFlame1D.h"
+#include "counterflowflame1d/Grammar_CounterFlowFlame1D.h"
+#include "counterflowflame1d/OpenSMOKE_CounterFlowFlame1D.h"
 
 // License
 #include "licensegenerator/license/OpenSMOKELicenseUtilities.hpp"
@@ -72,18 +75,18 @@ int main(int argc, char** argv)
 	boost::filesystem::path executable_file = OpenSMOKE::GetExecutableFileName(argv);
 	boost::filesystem::path executable_folder = executable_file.parent_path();
 
-	OpenSMOKE::OpenSMOKE_logo("OpenSMOKE_PremixedLaminarFlame1D", "Alberto Cuoci (alberto.cuoci@polimi.it)");
+	OpenSMOKE::OpenSMOKE_logo("OpenSMOKEpp_CounterFlowFlame1D", "Alberto Cuoci (alberto.cuoci@polimi.it)");
 
 	unsigned int max_number_allowed_species = 100000;
-	OpenSMOKE::OpenSMOKE_CheckLicense(executable_folder, "PremixedLaminarFlame1D", max_number_allowed_species);
+	OpenSMOKE::OpenSMOKE_CheckLicense(executable_folder, "CounterFlowFlame1D", max_number_allowed_species);
 
 	std::string input_file_name_ = "input.dic";
-	std::string main_dictionary_name_ = "PremixedLaminarFlame1D";
+	std::string main_dictionary_name_ = "CounterFlowFlame1D";
 
 	// Program options from command line
 	{
 		namespace po = boost::program_options;
-		po::options_description description("Options for the OpenSMOKE_PremixedLaminarFlame1D");
+		po::options_description description("Options for the OpenSMOKEpp_CounterFlowFlame1D");
 		description.add_options()
 			("help", "print help messages")
 			("input", po::value<std::string>(), "name of the file containing the main dictionary (default \"input.dic\")")
@@ -118,7 +121,7 @@ int main(int argc, char** argv)
 	}
 
 	// Defines the grammar rules
-	OpenSMOKE::Grammar_LaminarFlame grammar_laminarflame;
+	OpenSMOKE::Grammar_CounterFlowFlame1D grammar_laminarflame;
 
 	// Define the dictionaries
 	OpenSMOKE::OpenSMOKE_DictionaryManager dictionaries;
@@ -177,6 +180,7 @@ int main(int argc, char** argv)
 		double tStart = OpenSMOKE::OpenSMOKEGetCpuTime();
 		thermodynamicsMapXML = new OpenSMOKE::ThermodynamicsMap_CHEMKIN(doc);
 		kineticsMapXML = new OpenSMOKE::KineticsMap_CHEMKIN(*thermodynamicsMapXML, doc);
+		transportMapXML = new OpenSMOKE::TransportPropertiesMap_CHEMKIN(doc);
 
 		// Transport properties
 		transportMapXML = new OpenSMOKE::TransportPropertiesMap_CHEMKIN(doc);
@@ -193,63 +197,71 @@ int main(int argc, char** argv)
 		}
 	}
 
-	std::vector<double> inlet_T;
-	std::vector<double> P_Pa;
-	double inlet_velocity;
-	std::vector<OpenSMOKE::OpenSMOKEVectorDouble> inlet_omega;
-	std::vector<double> equivalence_ratios;
-
-	double outlet_T;
-	OpenSMOKE::OpenSMOKEVectorDouble outlet_omega;
-
-	// Read inlet conditions
+	// Read fuel conditions
+	std::vector<double> fuel_T;
+	std::vector<double> fuel_P_Pa;
+	std::vector<OpenSMOKE::OpenSMOKEVectorDouble> fuel_omega;
 	{
 		std::vector<std::string> list_of_strings;
-		if (dictionaries(main_dictionary_name_).CheckOption("@InletStream") == true)
-			dictionaries(main_dictionary_name_).ReadOption("@InletStream", list_of_strings);
+		if (dictionaries(main_dictionary_name_).CheckOption("@FuelStream") == true)
+			dictionaries(main_dictionary_name_).ReadOption("@FuelStream", list_of_strings);
 
-		// If multiple inlet streams are specified
-		if (list_of_strings.size() != 1)
-		{
-			inlet_T.resize(list_of_strings.size());
-			P_Pa.resize(list_of_strings.size());
-			inlet_omega.resize(list_of_strings.size());
-			equivalence_ratios.resize(list_of_strings.size());
-			for (unsigned int i = 0; i < list_of_strings.size(); i++)
-				GetGasStatusFromDictionary(dictionaries(list_of_strings[i]), *thermodynamicsMapXML, inlet_T[i], P_Pa[i], inlet_omega[i]);
-		}
-		// If a single inlet stream is defined
-		else
-		{
-			GetGasStatusFromDictionary(dictionaries(list_of_strings[0]), *thermodynamicsMapXML, inlet_T, P_Pa, inlet_omega, equivalence_ratios);
-		}
+		fuel_T.resize(list_of_strings.size());
+		fuel_P_Pa.resize(list_of_strings.size());
+		fuel_omega.resize(list_of_strings.size());
+		for (unsigned int i = 0; i < list_of_strings.size(); i++)
+			GetGasStatusFromDictionary(dictionaries(list_of_strings[i]), *thermodynamicsMapXML, fuel_T[i], fuel_P_Pa[i], fuel_omega[i]);
 	}
 	
-	// Read outlet conditions
+	// Read oxidizer conditions
+	std::vector<double> oxidizer_T;
+	std::vector<double> oxidizer_P_Pa;
+	std::vector<OpenSMOKE::OpenSMOKEVectorDouble> oxidizer_omega;
 	{
-		double P_Pa_outlet;
-		std::string name_of_gas_status_subdictionary;
-		if (dictionaries(main_dictionary_name_).CheckOption("@OutletStream") == true)
-			dictionaries(main_dictionary_name_).ReadDictionary("@OutletStream", name_of_gas_status_subdictionary);
+		std::vector<std::string> list_of_strings;
+		if (dictionaries(main_dictionary_name_).CheckOption("@OxidizerStream") == true)
+			dictionaries(main_dictionary_name_).ReadOption("@OxidizerStream", list_of_strings);
 
-		GetGasStatusFromDictionary(dictionaries(name_of_gas_status_subdictionary), *thermodynamicsMapXML, outlet_T, P_Pa_outlet, outlet_omega);
-
-		if (P_Pa_outlet != P_Pa[0])
-			OpenSMOKE::FatalErrorMessage("The pressure of outlet stream does not match with the inlet stream");
+		{
+			oxidizer_T.resize(list_of_strings.size());
+			oxidizer_P_Pa.resize(list_of_strings.size());
+			oxidizer_omega.resize(list_of_strings.size());
+			for (unsigned int i = 0; i < list_of_strings.size(); i++)
+				GetGasStatusFromDictionary(dictionaries(list_of_strings[i]), *thermodynamicsMapXML, oxidizer_T[i], oxidizer_P_Pa[i], oxidizer_omega[i]);
+		}
 	}
 
-	// Read inlet velocity
+	// Check over pressures
+
+	// Read fuel stream velocity
+	double fuel_velocity;
 	{
 		double value;
 		std::string units;
-		if (dictionaries(main_dictionary_name_).CheckOption("@InletVelocity") == true)
+		if (dictionaries(main_dictionary_name_).CheckOption("@FuelVelocity") == true)
 		{
-			dictionaries(main_dictionary_name_).ReadMeasure("@InletVelocity", value, units);
-			if (units == "m/s")			inlet_velocity = value;
-			else if (units == "cm/s")   inlet_velocity = value/100.;
-			else if (units == "mm/s")	inlet_velocity = value/1000.;
-			else if (units == "km/h")   inlet_velocity = value*10./36.;
-			else OpenSMOKE::FatalErrorMessage("Unknown velocity units");
+			dictionaries(main_dictionary_name_).ReadMeasure("@FuelVelocity", value, units);
+			if (units == "m/s")			fuel_velocity = value;
+			else if (units == "cm/s")   fuel_velocity = value/100.;
+			else if (units == "mm/s")	fuel_velocity = value/1000.;
+			else if (units == "km/h")   fuel_velocity = value*10./36.;
+			else OpenSMOKE::FatalErrorMessage("Unknown fuel velocity units");
+		}
+	}
+
+	// Read oxidizer stream velocity
+	double oxidizer_velocity;
+	{
+		double value;
+		std::string units;
+		if (dictionaries(main_dictionary_name_).CheckOption("@OxidizerVelocity") == true)
+		{
+			dictionaries(main_dictionary_name_).ReadMeasure("@OxidizerVelocity", value, units);
+			if (units == "m/s")			oxidizer_velocity = value;
+			else if (units == "cm/s")   oxidizer_velocity = value / 100.;
+			else if (units == "mm/s")	oxidizer_velocity = value / 1000.;
+			else if (units == "km/h")   oxidizer_velocity = value*10. / 36.;
+			else OpenSMOKE::FatalErrorMessage("Unknown oxidizer velocity units");
 		}
 	}
 
@@ -265,14 +277,14 @@ int main(int argc, char** argv)
 		grid = new OpenSMOKE::Grid1D(dictionaries(name_of_adaptive_grid_subdictionary), w);
 	}
 
-	flame_premixed = new OpenSMOKE::OpenSMOKE_PremixedLaminarFlame1D(*thermodynamicsMapXML, *kineticsMapXML, *transportMapXML, *grid);
+	flame_cfdf = new OpenSMOKE::OpenSMOKE_CounterFlowFlame1D(*thermodynamicsMapXML, *kineticsMapXML, *transportMapXML, *grid);
 	
 	// Output folder
 	if (dictionaries(main_dictionary_name_).CheckOption("@Output") == true)
 	{
 		boost::filesystem::path output_folder;
 		dictionaries(main_dictionary_name_).ReadPath("@Output", output_folder);
-		flame_premixed->SetOutputFolder(output_folder);
+		flame_cfdf->SetOutputFolder(output_folder);
 	}
 
 	// Solver type
@@ -281,16 +293,16 @@ int main(int argc, char** argv)
 		if (dictionaries(main_dictionary_name_).CheckOption("@Type") == true)
 		{
 			dictionaries(main_dictionary_name_).ReadString("@Type", solver_type);
-			flame_premixed->SetSolverType(solver_type);
+			flame_cfdf->SetSolverType(solver_type);
 		}
 	}
 
-	// Soret effect
+	// Enable Soret effect
 	{
 		bool soret = true;
 		if (dictionaries(main_dictionary_name_).CheckOption("@Soret") == true)
 			dictionaries(main_dictionary_name_).ReadBool("@Soret",soret);
-		flame_premixed->SetSoret(soret);
+		flame_cfdf->SetSoret(soret);
 	}
 
 	// Simplified transport properties
@@ -298,7 +310,7 @@ int main(int argc, char** argv)
 		bool is_simplfified_transport_properties = false;
 		if (dictionaries(main_dictionary_name_).CheckOption("@SimplifiedTransportProperties") == true)
 			dictionaries(main_dictionary_name_).ReadBool("@SimplifiedTransportProperties", is_simplfified_transport_properties);
-		flame_premixed->SetSimplifiedTransportProperties(is_simplfified_transport_properties);
+		flame_cfdf->SetSimplifiedTransportProperties(is_simplfified_transport_properties);
 	}
 
 	// Radiative heat transfer
@@ -306,7 +318,7 @@ int main(int argc, char** argv)
 		bool radiative_heat_transfer = false;
 		if (dictionaries(main_dictionary_name_).CheckOption("@Radiation") == true)
 			dictionaries(main_dictionary_name_).ReadBool("@Radiation", radiative_heat_transfer);
-		flame_premixed->SetRadiativeHeatTransfer(radiative_heat_transfer);
+		flame_cfdf->SetRadiativeHeatTransfer(radiative_heat_transfer);
 	}
 
 	// Read environment temperature
@@ -320,7 +332,7 @@ int main(int argc, char** argv)
 			else if (units == "C")		value += 273.15;
 			else OpenSMOKE::FatalErrorMessage("Unknown temperature units");
 
-			flame_premixed->SetEnvironmentTemperature(value);
+			flame_cfdf->SetEnvironmentTemperature(value);
 		}
 	}
 
@@ -332,9 +344,9 @@ int main(int argc, char** argv)
 			std::string name_of_polimisoot_analyzer_subdictionary;
 			dictionaries(main_dictionary_name_).ReadDictionary("@PolimiSoot", name_of_polimisoot_analyzer_subdictionary);
 			polimi_soot = new OpenSMOKE::PolimiSoot_Analyzer(thermodynamicsMapXML, dictionaries(name_of_polimisoot_analyzer_subdictionary));
-			
+
 			if (polimi_soot->number_sections() != 0)
-				flame_premixed->SetPolimiSoot(polimi_soot);
+				flame_cfdf->SetPolimiSoot(polimi_soot);
 		}
 	}
 
@@ -345,21 +357,28 @@ int main(int argc, char** argv)
 		std::string name_of_subdictionary;
 		dictionaries(main_dictionary_name_).ReadDictionary("@VirtualChemistry", name_of_subdictionary);
 		virtual_chemistry = new OpenSMOKE::VirtualChemistry(*thermodynamicsMapXML, dictionaries(name_of_subdictionary));
-		flame_premixed->SetVirtualChemistry(virtual_chemistry);
+		flame_cfdf->SetVirtualChemistry(virtual_chemistry);
 	}
 
 	// On the fly PostProcessing
 	OpenSMOKE::OnTheFlyPostProcessing* on_the_fly_post_processing;
 	{
-		on_the_fly_post_processing = new OpenSMOKE::OnTheFlyPostProcessing(*thermodynamicsMapXML, *kineticsMapXML, flame_premixed->output_folder());
+		on_the_fly_post_processing = new OpenSMOKE::OnTheFlyPostProcessing(*thermodynamicsMapXML, *kineticsMapXML, flame_cfdf->output_folder());
 
 		if (dictionaries(main_dictionary_name_).CheckOption("@OnTheFlyPostProcessing") == true)
 		{
 			std::string name_of_options_subdictionary;
 			dictionaries(main_dictionary_name_).ReadDictionary("@OnTheFlyPostProcessing", name_of_options_subdictionary);
 			on_the_fly_post_processing->SetupFromDictionary(dictionaries(name_of_options_subdictionary));
-			flame_premixed->SetOnTheFlyPostProcessing(on_the_fly_post_processing);
+			flame_cfdf->SetOnTheFlyPostProcessing(on_the_fly_post_processing);
 		}
+	}
+
+	// Check on the temperature profiles (if any)
+	{
+		if ( dictionaries(main_dictionary_name_).CheckOption("@FixedTemperatureProfile") == true &&
+			 dictionaries(main_dictionary_name_).CheckOption("@InitialTemperatureProfile") == true)
+			OpenSMOKE::FatalErrorMessage("The @FixedTemperatureProfile and @InitialTemperatureProfile keywords are mutually exclusive");
 	}
 
 	// Fixed temperature profile
@@ -374,35 +393,169 @@ int main(int argc, char** argv)
 			GetXYProfileFromDictionary(dictionaries(name_of_fixed_temperature_profile_subdictionary), x, y, x_variable, y_variable);
 
 			if (x_variable != "length")
-				OpenSMOKE::FatalErrorMessage("The @FixedTemperatureProfile must be defined versus spacee");
+				OpenSMOKE::FatalErrorMessage("The @FixedTemperatureProfile must be defined versus space");
 			if (y_variable != "temperature")
 				OpenSMOKE::FatalErrorMessage("The @FixedTemperatureProfile must be define the temperature profile");
 
-			flame_premixed->SetFixedTemperatureProfile(x, y);
+			flame_cfdf->SetFixedTemperatureProfile(x, y);
 		}
 	}
 
-	// Fixed specific (i.e. per unit area) mass flow rate profile
+	// Initial temperature profile
 	{
-		std::string name_of_fixed_specific_mass_flow_rate_profile_subdictionary;
-		if (dictionaries(main_dictionary_name_).CheckOption("@FixedSpecificMassFlowRateProfile") == true)
+		std::string name_of_fixed_temperature_profile_subdictionary;
+		if (dictionaries(main_dictionary_name_).CheckOption("@InitialTemperatureProfile") == true)
 		{
-			dictionaries(main_dictionary_name_).ReadDictionary("@FixedSpecificMassFlowRateProfile", name_of_fixed_specific_mass_flow_rate_profile_subdictionary);
+			dictionaries(main_dictionary_name_).ReadDictionary("@InitialTemperatureProfile", name_of_fixed_temperature_profile_subdictionary);
 
 			OpenSMOKE::OpenSMOKEVectorDouble x, y;
 			std::string x_variable, y_variable;
-			GetXYProfileFromDictionary(dictionaries(name_of_fixed_specific_mass_flow_rate_profile_subdictionary), x, y, x_variable, y_variable);
+			GetXYProfileFromDictionary(dictionaries(name_of_fixed_temperature_profile_subdictionary), x, y, x_variable, y_variable);
 
 			if (x_variable != "length")
-				OpenSMOKE::FatalErrorMessage("The @FixedSpecificMassFlowRateProfile must be defined versus spacee");
-			if (y_variable != "specific-mass-flow-rate")
-				OpenSMOKE::FatalErrorMessage("The @FixedSpecificMassFlowRateProfile must be define the specific (i.e. per unit area) mass flow rate profile");
+				OpenSMOKE::FatalErrorMessage("The @InitialTemperatureProfile must be defined versus space");
+			if (y_variable != "temperature")
+				OpenSMOKE::FatalErrorMessage("The @InitialTemperatureProfile must be define the temperature profile");
 
-			flame_premixed->SetFixedSpecificMassFlowRateProfile(x, y);
+			flame_cfdf->SetInitialTemperatureProfile(x, y);
 		}
 	}
 
-	// Lewis numbers
+	// Read peak conditions (if any)
+	{
+		if (dictionaries(main_dictionary_name_).CheckOption("@PeakMixture") == true)
+		{
+			std::vector<double> peak_T;
+			std::vector<double> peak_P_Pa;
+			std::vector<OpenSMOKE::OpenSMOKEVectorDouble> peak_omega;
+			std::vector<std::string> list_of_strings;
+
+			dictionaries(main_dictionary_name_).ReadOption("@PeakMixture", list_of_strings);
+
+			peak_T.resize(list_of_strings.size());
+			peak_P_Pa.resize(list_of_strings.size());
+			peak_omega.resize(list_of_strings.size());
+			for (unsigned int i = 0; i < list_of_strings.size(); i++)
+				GetGasStatusFromDictionary(dictionaries(list_of_strings[i]), *thermodynamicsMapXML, peak_T[i], peak_P_Pa[i], peak_omega[i]);
+
+			flame_cfdf->SetPeakMixture(peak_T[0], peak_omega[0]);
+		}
+	}
+
+	// Peak position
+	{
+		if (dictionaries(main_dictionary_name_).CheckOption("@PeakPosition") == true)
+		{
+			double value;
+			std::string units;
+
+			dictionaries(main_dictionary_name_).ReadMeasure("@PeakPosition", value, units);
+			if (units == "m")			value = value;
+			else if (units == "cm")		value = value / 100.;
+			else if (units == "mm")		value = value / 1000.;
+			else OpenSMOKE::FatalErrorMessage("Unknown @PeakPosition units");
+
+			flame_cfdf->SetPeakPosition(value);
+		}
+	}
+
+	// Mixing zone width
+	{
+		if (dictionaries(main_dictionary_name_).CheckOption("@MixingZoneWidth") == true)
+		{
+			double value;
+			std::string units;
+
+			dictionaries(main_dictionary_name_).ReadMeasure("@MixingZoneWidth", value, units);
+			if (units == "m")			value = value;
+			else if (units == "cm")		value = value / 100.;
+			else if (units == "mm")		value = value / 1000.;
+			else OpenSMOKE::FatalErrorMessage("Unknown @MixingZoneWidth units");
+
+			flame_cfdf->SetMixingZoneWidth(value);
+		}
+	}
+
+	// Initial profile type
+	{
+		if (dictionaries(main_dictionary_name_).CheckOption("@InitialProfiles") == true)
+		{
+			std::string value;
+
+			dictionaries(main_dictionary_name_).ReadString("@InitialProfiles", value);
+
+			flame_cfdf->SetInitialProfileType(value);
+		}
+	}
+
+	// Starting guess of eigenvalue
+	{
+		if (dictionaries(main_dictionary_name_).CheckOption("@EigenValueStartingGuess") == true)
+		{
+			double value;
+			std::string units;
+
+			dictionaries(main_dictionary_name_).ReadMeasure("@EigenValueStartingGuess", value, units);
+			if (units == "kg/m3/s2")		value = value;
+			else if (units == "g/cm3/s2")	value = value * 1000.;
+			else OpenSMOKE::FatalErrorMessage("Unknown @EigenValueStartingGuess units");
+
+			flame_cfdf->SetEigenValueStartingGuess(value);
+		}
+	}
+
+	// Radial gradient on the fuel side (G = rho*radial_gradient)
+	{
+		if (dictionaries(main_dictionary_name_).CheckOption("@RadialGradientFuelSide") == true)
+		{
+			double value;
+			std::string units;
+
+			dictionaries(main_dictionary_name_).ReadMeasure("@RadialGradientFuelSide", value, units);
+			if (units == "1/s")			value = value;
+			else if (units == "Hz")		value = value;
+			else OpenSMOKE::FatalErrorMessage("Unknown @RadialGradientFuelSide units");
+
+			flame_cfdf->SetRadialGradientFuelSide(value);
+		}
+	}
+
+	// Radial gradient on the oxidizer side (G = rho*radial_gradient)
+	{
+		if (dictionaries(main_dictionary_name_).CheckOption("@RadialGradientOxidizerSide") == true)
+		{
+			double value;
+			std::string units;
+
+			dictionaries(main_dictionary_name_).ReadMeasure("@RadialGradientOxidizerSide", value, units);
+			if (units == "1/s")			value = value;
+			else if (units == "Hz")		value = value;
+			else OpenSMOKE::FatalErrorMessage("Unknown @RadialGradientOxidizerSide units");
+
+			flame_cfdf->SetRadialGradientOxidizerSide(value);
+		}
+	}
+
+	// Set planar symmetry
+	{
+		if (dictionaries(main_dictionary_name_).CheckOption("@PlanarSymmetry") == true)
+		{
+			bool flag;
+			dictionaries(main_dictionary_name_).ReadBool("@PlanarSymmetry", flag);
+			flame_cfdf->SetPlanarSymmetry(flag);
+		}
+	}
+
+	// Set the reaction rate multiplier for all the reactions
+	{
+		if (dictionaries(main_dictionary_name_).CheckOption("@GasReactionRateMultiplier") == true)
+		{
+			double value;
+			dictionaries(main_dictionary_name_).ReadDouble("@GasReactionRateMultiplier", value);
+			flame_cfdf->GasReactionRateMultiplier(value);
+		}
+	}
+
 	if (dictionaries(main_dictionary_name_).CheckOption("@LewisNumbers") == true)
 	{
 		std::string name_of_lewis_numbers_subdictionary;
@@ -410,67 +563,47 @@ int main(int argc, char** argv)
 
 		std::vector<double> lewis_numbers;
 		OpenSMOKE::GetLewisNumbersFromDictionary(dictionaries(name_of_lewis_numbers_subdictionary), thermodynamicsMapXML[0], lewis_numbers);
-		flame_premixed->SetLewisNumbers(lewis_numbers);
+		flame_cfdf->SetLewisNumbers(lewis_numbers);
+	}
+
+	// Dynamic boundaries
+	OpenSMOKE::DynamicBoundaries* dynamic_boundaries;
+	{
+		dynamic_boundaries = new OpenSMOKE::DynamicBoundaries(*thermodynamicsMapXML, flame_cfdf->output_folder());
+
+		if (dictionaries(main_dictionary_name_).CheckOption("@DynamicBoundaries") == true)
+		{
+			std::string name_of_options_subdictionary;
+			dictionaries(main_dictionary_name_).ReadDictionary("@DynamicBoundaries", name_of_options_subdictionary);
+			dynamic_boundaries->SetupFromDictionary(dictionaries(name_of_options_subdictionary));
+			flame_cfdf->SetDynamicBoundaries(dynamic_boundaries);
+		}
 	}
 
 	// Initialize from backup
-	bool use_userdefined_grid_for_backup = false;
 	if (dictionaries(main_dictionary_name_).CheckOption("@Backup") == true)
 	{
-		if (dictionaries(main_dictionary_name_).CheckOption("@DontUseBackupGrid") == true)
-			dictionaries(main_dictionary_name_).ReadBool("@DontUseBackupGrid", use_userdefined_grid_for_backup);
-
-		if (flame_premixed->solver_type() == OpenSMOKE::OpenSMOKE_PremixedLaminarFlame1D::SOLVER_TYPE_FLAMESPEED)
+		//else if (flame_cfdf->solver_type() == OpenSMOKE::OpenSMOKE_CounterFlowFlame1D::SOLVER_TYPE_BURNERSTABILIZED)
 		{
 			boost::filesystem::path path_backup;
 			dictionaries(main_dictionary_name_).ReadPath("@Backup", path_backup);
 
 			// Set inlet and outlet values and first guess velocity according to user values
-			flame_premixed->SetInlet(inlet_T[0], P_Pa[0], inlet_omega[0]);
-			flame_premixed->SetOutlet(outlet_T, outlet_omega);
-			flame_premixed->SetInletVelocity(inlet_velocity);
+			flame_cfdf->SetFuelSide(fuel_T[0], fuel_P_Pa[0], fuel_omega[0], fuel_velocity);
+			flame_cfdf->SetOxidizerSide(oxidizer_T[0], oxidizer_P_Pa[0], oxidizer_omega[0], oxidizer_velocity);
 
 			// Setup the solution, accordingly to backup file
-			flame_premixed->InitializeFromBackupFile(path_backup, use_userdefined_grid_for_backup);
-		}
-		else if (flame_premixed->solver_type() == OpenSMOKE::OpenSMOKE_PremixedLaminarFlame1D::SOLVER_TYPE_BURNERSTABILIZED)
-		{
-			boost::filesystem::path path_backup;
-			dictionaries(main_dictionary_name_).ReadPath("@Backup", path_backup);
-
-			// Set inlet and outlet values and first guess velocity according to user values
-			flame_premixed->SetInlet(inlet_T[0], P_Pa[0], inlet_omega[0]);
-			flame_premixed->SetOutlet(outlet_T, outlet_omega);
-			flame_premixed->SetInletVelocity(inlet_velocity);
-
-			// Setup the solution, accordingly to backup file
-			flame_premixed->InitializeFromBackupFile(path_backup, use_userdefined_grid_for_backup);
+			flame_cfdf->InitializeFromBackupFile(path_backup);
 		}
 	}
 	else
 	{
-		if (flame_premixed->solver_type() == OpenSMOKE::OpenSMOKE_PremixedLaminarFlame1D::SOLVER_TYPE_FLAMESPEED)
+	//	else if (flame_cfdf->solver_type() == OpenSMOKE::OpenSMOKE_CounterFlowFlame1D::SOLVER_TYPE_BURNERSTABILIZED)
 		{
-			flame_premixed->SetInlet(inlet_T[0], P_Pa[0], inlet_omega[0]);
-			flame_premixed->SetOutlet(outlet_T, outlet_omega);
-			flame_premixed->SetInletVelocity(inlet_velocity);
-			flame_premixed->SetupForFlameSpeed(w);
+			flame_cfdf->SetFuelSide(fuel_T[0], fuel_P_Pa[0], fuel_omega[0], fuel_velocity);
+			flame_cfdf->SetOxidizerSide(oxidizer_T[0], oxidizer_P_Pa[0], oxidizer_omega[0], oxidizer_velocity);
+			flame_cfdf->SetupForBurnerStabilized();
 		}
-		else if (flame_premixed->solver_type() == OpenSMOKE::OpenSMOKE_PremixedLaminarFlame1D::SOLVER_TYPE_BURNERSTABILIZED)
-		{
-			flame_premixed->SetInlet(inlet_T[0], P_Pa[0], inlet_omega[0]);
-			flame_premixed->SetOutlet(outlet_T, outlet_omega);
-			flame_premixed->SetInletVelocity(inlet_velocity);
-			flame_premixed->SetupForBurnerStabilized(w);
-		}
-	}
-
-	// Use NLS Solver
-	{
-		bool use_nls_solver = true;
-		if (dictionaries(main_dictionary_name_).CheckOption("@UseNlsSolver") == true)
-			dictionaries(main_dictionary_name_).ReadBool("@UseNlsSolver", use_nls_solver);
-		flame_premixed->SetUseNlsSolver(use_nls_solver);
 	}
 
 	// Use DAE Solver
@@ -478,7 +611,15 @@ int main(int argc, char** argv)
 		bool use_dae_solver = true;
 		if (dictionaries(main_dictionary_name_).CheckOption("@UseDaeSolver") == true)
 			dictionaries(main_dictionary_name_).ReadBool("@UseDaeSolver", use_dae_solver);
-		flame_premixed->SetUseDaeSolver(use_dae_solver);
+		flame_cfdf->SetUseDaeSolver(use_dae_solver);
+	}
+
+	// Use NLS Solver
+	{
+		bool use_nls_solver = true;
+		if (dictionaries(main_dictionary_name_).CheckOption("@UseNlsSolver") == true)
+			dictionaries(main_dictionary_name_).ReadBool("@UseNlsSolver", use_nls_solver);
+		flame_cfdf->SetUseNlsSolver(use_nls_solver);
 	}
 
 	// Sensitivity Options
@@ -489,7 +630,7 @@ int main(int argc, char** argv)
 		std::string name_of_sensitivity_options_subdictionary;
 		dictionaries(main_dictionary_name_).ReadDictionary("@SensitivityAnalysis", name_of_sensitivity_options_subdictionary);
 		sensitivity_options->SetupFromDictionary(dictionaries(name_of_sensitivity_options_subdictionary));
-		flame_premixed->EnableSensitivityAnalysis(*sensitivity_options);
+		flame_cfdf->EnableSensitivityAnalysis(*sensitivity_options);
 	}
 
 	// Dae Options
@@ -522,28 +663,6 @@ int main(int argc, char** argv)
 		false_transient_parameters->SetupFromDictionary(dictionaries(name_of_subdictionary));
 	}
 
-	if (dictionaries(main_dictionary_name_).CheckOption("@DerivativeGasTemperature") == true)
-	{
-		std::string value;
-		dictionaries(main_dictionary_name_).ReadString("@DerivativeGasTemperature", value);
-		if (value == "upwind")					flame_premixed->SetDerivativeGasTemperature(OpenSMOKE::DERIVATIVE_1ST_UPWIND);
-		else if (value == "backward")			flame_premixed->SetDerivativeGasTemperature(OpenSMOKE::DERIVATIVE_1ST_BACKWARD);
-		else if (value == "forward")			flame_premixed->SetDerivativeGasTemperature(OpenSMOKE::DERIVATIVE_1ST_FORWARD);
-		else if (value == "centered")			flame_premixed->SetDerivativeGasTemperature(OpenSMOKE::DERIVATIVE_1ST_CENTERED);
-		else OpenSMOKE::FatalErrorMessage("Unknown derivative type for gas temperature");
-	}
-
-	if (dictionaries(main_dictionary_name_).CheckOption("@DerivativeGasMassFractions") == true)
-	{
-		std::string value;
-		dictionaries(main_dictionary_name_).ReadString("@DerivativeGasMassFractions", value);
-		if (value == "upwind")					flame_premixed->SetDerivativeGasMassFractions(OpenSMOKE::DERIVATIVE_1ST_UPWIND);
-		else if (value == "backward")			flame_premixed->SetDerivativeGasMassFractions(OpenSMOKE::DERIVATIVE_1ST_BACKWARD);
-		else if (value == "forward")			flame_premixed->SetDerivativeGasMassFractions(OpenSMOKE::DERIVATIVE_1ST_FORWARD);
-		else if (value == "centered")			flame_premixed->SetDerivativeGasMassFractions(OpenSMOKE::DERIVATIVE_1ST_CENTERED);
-		else OpenSMOKE::FatalErrorMessage("Unknown derivative type for gas mass fractions");
-	}
-
 	// Hybrid Method of Moments
 	OpenSMOKE::HMOM* hmom;
 	if (dictionaries(main_dictionary_name_).CheckOption("@HMOM") == true)
@@ -553,29 +672,43 @@ int main(int argc, char** argv)
 		dictionaries(main_dictionary_name_).ReadDictionary("@HMOM", name_of_subdictionary);
 		hmom->SetupFromDictionary(dictionaries(name_of_subdictionary));
 
-		flame_premixed->SolveHMOMFromExistingSolution(*hmom, *dae_parameters, *nls_parameters, *false_transient_parameters);
+		flame_cfdf->SolveHMOMFromExistingSolution(*hmom, *dae_parameters, *nls_parameters, *false_transient_parameters);
 
 		return(0);
 	}
 
-	if (flame_premixed->solver_type() == OpenSMOKE::OpenSMOKE_PremixedLaminarFlame1D::SOLVER_TYPE_FLAMESPEED)
+	// Deposition wall in burner stabilized stagnation flames (BSS)
+	if (dictionaries(main_dictionary_name_).CheckOption("@DepositionWall") == true)
+	{
+		bool flag;
+		dictionaries(main_dictionary_name_).ReadBool("@DepositionWall", flag);
+
+		if (polimi_soot->thermophoretic_effect() == false)
+			OpenSMOKE::FatalErrorMessage("The @DepositionWall option can be used only if the thermophoretic effect is turned on");
+
+		flame_cfdf->SetDepositionWall(flag);
+	}
+
+	if (flame_cfdf->solver_type() == OpenSMOKE::OpenSMOKE_CounterFlowFlame1D::SOLVER_TYPE_COUNTERFLOW_DIFFUSION)
 	{
 		// Solve only for a single flame
-		if (inlet_omega.size() == 1)
+		if (fuel_omega.size() == 1)
 		{
 			time_t timerStart;
 			time_t timerEnd;
 			
 			time(&timerStart);
-			flame_premixed->SolveFlameSpeedFromScratch(*dae_parameters, *nls_parameters, *false_transient_parameters);
+			flame_cfdf->SolveFlameFromScratch(*dae_parameters, *nls_parameters, *false_transient_parameters);
 			time(&timerEnd);
 
 			std::cout << "Total time: " << difftime(timerEnd, timerStart) << " s" << std::endl;
 		}
+		// TODO
+		/*
 		// Solve for several flames
 		else
 		{
-			boost::filesystem::path output_folder_root = flame_premixed->output_folder();
+			boost::filesystem::path output_folder_root = flame_cfdf->output_folder();
 			std::ofstream fOutput((output_folder_root / "FlameSpeeds.out").string().c_str(), std::ios::out);
 			fOutput.setf(std::ios::scientific);
 
@@ -587,29 +720,32 @@ int main(int argc, char** argv)
 			fOutput << std::setw(16) << "Pressure[atm]";
 			fOutput << std::endl;
 
-			for (unsigned int i = 0; i < inlet_omega.size(); i++)
+			for (unsigned int i = 0; i < fuel_omega.size(); i++)
 			{
 				std::stringstream index; index << i;
 				std::string case_name = "Case" + index.str();
 
-				flame_premixed->SetOutputFolder(output_folder_root / case_name);
-				flame_premixed->ChangeInletConditions(inlet_T[i], P_Pa[i], inlet_omega[i]);
-				flame_premixed->SolveFlameSpeedFromScratch(*dae_parameters, *nls_parameters, *false_transient_parameters);
-
+				flame_cfdf->SetOutputFolder(output_folder_root / case_name);
+				flame_cfdf->ChangeFuelSide(fuel_T[i], fuel_P_Pa[i], fuel_omega[i], fuel_velocity);
+				flame_cfdf->ChangeOxidizerSide(oxidizer_T[i], oxidizer_P_Pa[i], oxidizer_omega[i], oxidizer_velocity);
+				flame_cfdf->SolveFlameFromScratch(*dae_parameters, *nls_parameters, *false_transient_parameters);
+				
 				fOutput << std::setw(8) << std::fixed << std::setprecision(0) << i;
-				fOutput << std::setw(16) << std::fixed << std::setprecision(4) << flame_premixed->flame_speed()*100.;
+				fOutput << std::setw(16) << std::fixed << std::setprecision(4) << flame_cfdf->flame_speed()*100.;
 				fOutput << std::setw(16) << std::fixed << std::setprecision(4) << equivalence_ratios[i];
 				fOutput << std::setw(16) << std::fixed << std::setprecision(2) << inlet_T[i];
 				fOutput << std::setw(16) << std::fixed << std::setprecision(4) << P_Pa[i] / 101325.;
 				fOutput << std::endl;
+				
 			}
 
 			fOutput.close();
 		}
+		*/
 	}
-	else if (flame_premixed->solver_type() == OpenSMOKE::OpenSMOKE_PremixedLaminarFlame1D::SOLVER_TYPE_BURNERSTABILIZED)
+	else if (flame_cfdf->solver_type() == OpenSMOKE::OpenSMOKE_CounterFlowFlame1D::SOLVER_TYPE_BURNER_STABILIZED_STAGNATION)
 	{
-		flame_premixed->SolveBurnerStabilizedFromScratch(*dae_parameters, *nls_parameters, *false_transient_parameters);
+		flame_cfdf->SolveFlameFromScratch(*dae_parameters, *nls_parameters, *false_transient_parameters);
 	}
 	
 	return(0);

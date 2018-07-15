@@ -24,19 +24,33 @@
 |                                                                         |
 \*-----------------------------------------------------------------------*/
 
-typedef struct 
+class OpenSMOKE_Flame1D_MyNlsSystem_CounterFlowFlame1D : public BzzMyNonLinearSystemSparseObject
 {
-	double* yInitial;
-} *KINSolUserData;
+public:
 
-static int kinsol_equations(N_Vector u, N_Vector f, void *user_data)
+	OpenSMOKE::OpenSMOKE_CounterFlowFlame1D *ptFlame;
+
+	void assign(OpenSMOKE::OpenSMOKE_CounterFlowFlame1D *flame)
+	{
+		ptFlame = flame;
+	}
+
+	virtual void GetResiduals(BzzVector &x, BzzVector &f)
+	{
+		double* ptx = x.GetHandle();
+		double* ptf = f.GetHandle();
+
+		ptFlame->Equations(0., ptx, ptf);
+	}
+
+	virtual void ObjectBzzPrint(void)
+	{
+	}
+};
+
+void NlsPrint(BzzVector &y)
 {
-	realtype *pt_y = NV_DATA_S(u);
-	realtype *pt_res = NV_DATA_S(f);
-
-	flame_premixed->Equations(0., pt_y, pt_res);
-
-	return 0;
+	flame_cfdf->Print(0., y.GetHandle());
 }
 
-#include "math/native-nls-solvers/interfaces/Band_KinSol.h"
+#include "math/native-nls-solvers/interfaces/TridiagonalBlock_BzzNls.h"

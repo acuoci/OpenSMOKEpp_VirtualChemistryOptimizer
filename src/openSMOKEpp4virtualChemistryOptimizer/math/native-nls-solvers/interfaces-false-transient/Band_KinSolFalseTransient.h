@@ -308,8 +308,10 @@ namespace NlsSMOKE
 			for (int i = 0; i < NV_LENGTH_S(y); i++)
 				pt_yInitial[i] = pt_y[i];
 
-			flame->CorrectedUnknownsVector(NV_DATA_S(y));
-			flame->norm();
+			// NO! Something wrong here
+			OpenSMOKE::FatalErrorMessage("TO BE FIXED Interface_FalseTransient_KinSol");
+			//flame_premixed->CorrectedUnknownsVector(NV_DATA_S(y));
+			//flame_premixed->norm();
 
 			// Update the Jacobian at first call: false
 			{

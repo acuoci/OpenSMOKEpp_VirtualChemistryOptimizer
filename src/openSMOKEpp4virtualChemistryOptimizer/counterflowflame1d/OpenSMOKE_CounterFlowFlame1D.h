@@ -34,8 +34,8 @@
 |                                                                         |
 \*-----------------------------------------------------------------------*/
 
-#ifndef OpenSMOKE_PremixedLaminarFlame1D_H
-#define OpenSMOKE_PremixedLaminarFlame1D_H
+#ifndef OpenSMOKE_CounterFlowFlame1D_H
+#define OpenSMOKE_CounterFlowFlame1D_H
 
 #if OPENSMOKE_USE_BZZMATH == 1
 #include "BzzMath.hpp"
@@ -61,6 +61,9 @@
 // Fixed profile
 #include "utilities/FixedProfile.h"
 
+// Dynamic boundaries
+#include "dynamics/DynamicBoundaries.h"
+
 namespace OpenSMOKE
 {
 	//!  A class to solve laminar premixed flat (1D) flames
@@ -68,13 +71,17 @@ namespace OpenSMOKE
 	This class provides the tools to solve laminar premixed flat (1D) flames
 	*/
 
-	class OpenSMOKE_PremixedLaminarFlame1D
+	class OpenSMOKE_CounterFlowFlame1D
 	{
 
 	public:
 
-		enum Simulation_Type { SIMULATION_TYPE_Y, SIMULATION_TYPE_YTM, SIMULATION_TYPE_TM, SIMULATION_TYPE_YT, SIMULATION_TYPE_HMOM, SIMULATION_TYPE_Y_HMOM, SIMULATION_TYPE_YT_HMOM };
-		enum Solver_Type { SOLVER_TYPE_BURNERSTABILIZED, SOLVER_TYPE_FLAMESPEED };
+		enum Simulation_Type { SIMULATION_TYPE_M, SIMULATION_TYPE_Y, SIMULATION_TYPE_YTM, SIMULATION_TYPE_TM, SIMULATION_TYPE_YT, SIMULATION_TYPE_YM, SIMULATION_TYPE_HMOM, SIMULATION_TYPE_Y_HMOM, SIMULATION_TYPE_YT_HMOM, SIMULATION_TYPE_CSI };
+		enum Solver_Type { SOLVER_TYPE_COUNTERFLOW_DIFFUSION, SOLVER_TYPE_BURNER_STABILIZED_STAGNATION };
+		
+	private:
+
+		enum InitialProfile_Type { INITIAL_PROFILE_TYPE_TRIANGULAR, INITIAL_PROFILE_TYPE_PLATEAU, INITIAL_PROFILE_TYPE_LINEAR};
 		enum MassDiffusionCoefficients_Type { MASS_DIFFUSION_COEFFICIENTS_TYPE_MOLECULAR_THEORY_GASES, MASS_DIFFUSION_COEFFICIENTS_TYPE_LEWIS_NUMBERS };
 
 	public:
@@ -86,7 +93,7 @@ namespace OpenSMOKE
 		*@param transportMap		reference to the transport map
 		*@param grid				reference to 1D grid
 		*/
-		OpenSMOKE_PremixedLaminarFlame1D( OpenSMOKE::ThermodynamicsMap_CHEMKIN& thermodynamicsMap,
+		OpenSMOKE_CounterFlowFlame1D( OpenSMOKE::ThermodynamicsMap_CHEMKIN& thermodynamicsMap,
 										  OpenSMOKE::KineticsMap_CHEMKIN& kineticsMap,
 										  OpenSMOKE::TransportPropertiesMap_CHEMKIN& transportMap,
 										  OpenSMOKE::Grid1D& grid);
@@ -98,25 +105,29 @@ namespace OpenSMOKE
 		void SetSolverType(const std::string solver_type);
 
 		/**
-		*@brief Sets the inlet mixture
-		*@param Tinlet inlet temperature [K]
+		*@brief Sets the fuel side mixture
+		*@param Tfuel fuel temperature [K]
 		*@param P_Pa pressure [Pa]
-		*@param omegaInlet composition (in mass fractions) of inlet mixture
+		*@param omegaFuel composition (in mass fractions) of fuel mixture
+		*@param fuel_velocity velocity [m/s]
 		*/
-		void SetInlet(const double Tinlet, const double P_Pa, const OpenSMOKE::OpenSMOKEVectorDouble& omegaInlet);
+		void SetFuelSide(const double Tfuel, const double P_Pa, const OpenSMOKE::OpenSMOKEVectorDouble& omegaFuel, const double fuel_velocity);
 
 		/**
-		*@brief Sets the outlet mixture (first guess, only to start the calculations)
-		*@param Toutlet outlet temperature [K]
-		*@param omegaOutlet composition (in mass fractions) of outlet mixture
+		*@brief Sets the oxidizer side mixture
+		*@param Toxidizer oxidizer temperature [K]
+		*@param P_Pa pressure [Pa]
+		*@param omegaOxidizer composition (in mass fractions) of oxidizer mixture
+		*@param oxidizer_velocity velocity [m/s]
 		*/
-		void SetOutlet(const double Toutlet, const OpenSMOKE::OpenSMOKEVectorDouble& omegaOutlet);
+		void SetOxidizerSide(const double Toxidizer, const double P_Pa, const OpenSMOKE::OpenSMOKEVectorDouble& omegaOxidizer, const double oxidizer_velocity);
 
 		/**
-		*@brief Sets the velocity of the inlet mixture (in case of a flame speed calculation, it is only a first guess value)
-		*@param inlet_velocity velocity of inlet mixture [m/s]
+		*@brief Sets the peak mixture (needed by triangular or plateau profiles)
+		*@param Tpeak peak temperature [K]
+		*@param omegaPeak composition (in mass fractions) of peak mixture
 		*/
-		void SetInletVelocity(const double inlet_velocity);
+		void SetPeakMixture(const double Tpeak, const OpenSMOKE::OpenSMOKEVectorDouble& omegaPeak);
 
 		/**
 		*@brief Sets the name of the output folder
@@ -149,6 +160,12 @@ namespace OpenSMOKE
 		void SetSimplifiedTransportProperties(const bool flag);
 
 		/**
+		*@brief Turns on/off the deposition wall for soot in burner stabilized stagnation flames
+		*@param flag if true, the deposition wall is turned on
+		*/
+		void SetDepositionWall(const bool flag);
+
+		/**
 		*@brief Turns on/off the radiative heat transfer
 		*@param radiative_heat_transfer if true, the radiative heat transfer is accounted for
 		*/
@@ -159,24 +176,6 @@ namespace OpenSMOKE
 		*@param environment_temperature the environment temperature [K]
 		*/
 		void SetEnvironmentTemperature(const double environment_temperature);
-
-		/**
-		*@brief Sets the type of gas temperature 1st order derivative (default backward)
-		*@param type of gas temperature 1st order derivative
-		*/
-		void SetDerivativeGasTemperature(const OpenSMOKE::derivative_type type)
-		{
-			gas_temperature_1st_derivative_type_ = type;
-		}
-
-		/**
-		*@brief Sets the type of gas mass fractions 1st order derivative (default backward)
-		*@param type of gas mass fractions 1st order derivative
-		*/
-		void SetDerivativeGasMassFractions(const OpenSMOKE::derivative_type type)
-		{
-			gas_mass_fractions_1st_derivative_type_ = type;
-		}
 
 		/**
 		*@brief Sets the soot analyzer fo kinetic mechanisms developed by the CRECK Group at Politecnico di Milano
@@ -197,18 +196,72 @@ namespace OpenSMOKE
 		void SetOnTheFlyPostProcessing(OpenSMOKE::OnTheFlyPostProcessing* on_the_fly_post_processing);
 
 		/**
-		*@brief Sets a user defined, fixed temperature profile
+		*@brief Sets the dynamic boundaries
+		*@param dynamic_boundaries pointer to the dynamic boundary manager
+		*/
+		void SetDynamicBoundaries(OpenSMOKE::DynamicBoundaries* dynamic_boundaries);
+			
+		/**
+		*@brief Sets a user defined, fixed temperature profile (automatically fixes also the initial profile)
 		*@param x axial coordinates [m]
-		*@param T temperatures [T]
+		*@param T temperatures [K]
 		*/
 		void SetFixedTemperatureProfile(const OpenSMOKE::OpenSMOKEVectorDouble& x, const OpenSMOKE::OpenSMOKEVectorDouble& T);
 
 		/**
-		*@brief Sets a user defined, specific (i.e. per unit area) mass flow rate profile
+		*@brief Sets a user defined, initial temperature profile
 		*@param x axial coordinates [m]
-		*@param m specific mass flow rate profile [kg/m2/s]
+		*@param T temperatures [K]
 		*/
-		void SetFixedSpecificMassFlowRateProfile(const OpenSMOKE::OpenSMOKEVectorDouble& x, const OpenSMOKE::OpenSMOKEVectorDouble& m);
+		void SetInitialTemperatureProfile(const OpenSMOKE::OpenSMOKEVectorDouble& x, const OpenSMOKE::OpenSMOKEVectorDouble& T);
+
+		/**
+		*@brief Sets the position of the initial peak of temperature
+		*@param x_peak initial position of peak of temperature [m]
+		*/
+		void SetPeakPosition(const double x_peak);
+
+		/**
+		*@brief Sets the width of the initial mixing zone
+		*@param width_mixing width of the initial mixing zone [m]
+		*/
+		void SetMixingZoneWidth(const double width_mixing);
+
+		/**
+		*@brief Sets the type of initial profiles of species and temperature
+		*@param type type of initial profiles of species and temperature (triangular | linear | plateau)
+		*/
+		void SetInitialProfileType(const std::string type);
+
+		/**
+		*@brief Sets the starting guess value of the eigenvalue
+		*@param H the starting guess value [kg/m3/s2]
+		*/
+		void SetEigenValueStartingGuess(const double H);
+
+		/**
+		*@brief Sets the radial gradient on the fuel side
+		*@param G the radial gradient on the fuel side [kg/m3/s]
+		*/
+		void SetRadialGradientFuelSide(const double G);
+
+		/**
+		*@brief Sets the radial gradient on the oxidizer side
+		*@param G the radial gradient on the oxidizer side [kg/m3/s]
+		*/
+		void SetRadialGradientOxidizerSide(const double G);
+
+		/**
+		*@brief Sets the planar symmetry
+		*@param flag if true, the planar symmetry is adopted (otherwise, the cylyndrical symmetry is adopted)
+		*/
+		void SetPlanarSymmetry(const bool flag);
+
+		/**
+		*@brief Sets the optional multiplying factor for all the reaction rates (default: 1)
+		*@param value the optional multiplying factor for all the reaction rates
+		*/
+		void GasReactionRateMultiplier(const double value);
 
 		/**
 		*@brief Sets the number of Lewis for each species: Le = alpha/gamma
@@ -217,52 +270,17 @@ namespace OpenSMOKE
 		void SetLewisNumbers(const std::vector<double> lewis_numbers);
 
 		/**
-		*@brief Prepares the solver for flame speed calculations
-		*@param w interpolation coefficients (associated to the 1D grid)
-		*/
-		void SetupForFlameSpeed(const Eigen::VectorXd& w);
-
-		/**
 		*@brief Prepares the solver for burner stabilized calculations
-		*@param w interpolation coefficients (associated to the 1D grid)
 		*/
-		void SetupForBurnerStabilized(const Eigen::VectorXd& w);
+		void SetupForBurnerStabilized();
 
 		/**
-		*@brief Changes the inlet conditions (useful for performing parametric analyses)
-		*@param Tinlet inlet temperature [K]
-		*@param P_Pa pressure [Pa]
-		*@param omegaInlet composition (in mass fractions) of inlet mixture
-		*/
-		void ChangeInletConditions(const double Tinlet, const double P_Pa, const OpenSMOKE::OpenSMOKEVectorDouble& omegaInlet);
-
-		/**
-		*@brief Solves the flame speed problem from scratch
+		*@brief Solves the flame problem from scratch
 		*@param dae_parameter parameters governing the solution of DAE systems
 		*@param nls_parameters parameters governing the solution of NL systems
 		*@param false_transient_parameters parameters governing the solution of false-transients
 		*/
-		int SolveFlameSpeedFromScratch(DaeSMOKE::DaeSolver_Parameters& dae_parameter,
-			NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
-			NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters);
-
-		/**
-		*@brief Solves the flame speed problem from scratch (for optimization)
-		*@param dae_parameter parameters governing the solution of DAE systems
-		*@param nls_parameters parameters governing the solution of NL systems
-		*@param false_transient_parameters parameters governing the solution of false-transients
-		*/
-		int SolveFlameSpeedFromScratchForOptimization(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
-			NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
-			NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters);
-
-		/**
-		*@brief Solves the burner-stabilized problem from scratch
-		*@param dae_parameter parameters governing the solution of DAE systems
-		*@param nls_parameters parameters governing the solution of NL systems
-		*@param false_transient_parameters parameters governing the solution of false-transients
-		*/
-		int SolveBurnerStabilizedFromScratch(DaeSMOKE::DaeSolver_Parameters& dae_parameter,
+		int SolveFlameFromScratch(DaeSMOKE::DaeSolver_Parameters& dae_parameter,
 			NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
 			NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters);
 
@@ -283,10 +301,11 @@ namespace OpenSMOKE
 		*@param nls_parameters parameters governing the solution of NL systems
 		*@param false_transient_parameters parameters governing the solution of false-transients
 		*/
-		int SolveHMOMFromExistingSolution(	OpenSMOKE::HMOM& hmom,
-											DaeSMOKE::DaeSolver_Parameters& dae_parameters,
-											NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
-											NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters);
+		int SolveHMOMFromExistingSolution(OpenSMOKE::HMOM& hmom,
+			DaeSMOKE::DaeSolver_Parameters& dae_parameters,
+			NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
+			NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters);
+
 
 		/**
 		*@brief Performs the sensitivity analysis at a specific time
@@ -386,7 +405,7 @@ namespace OpenSMOKE
 
 		/**
 		*@brief Sets simulation type
-		*@param solver_type simulation type: SIMULATION_TYPE_Y, SIMULATION_TYPE_YTM, SIMULATION_TYPE_TM, SIMULATION_TYPE_YT, SIMULATION_TYPE_HMOM
+		*@param solver_type simulation type: SIMULATION_TYPE_Y, SIMULATION_TYPE_YTM, SIMULATION_TYPE_TM, SIMULATION_TYPE_YT
 		*/
 		void SetType(const Simulation_Type flag) { type_ = flag; SetAlgebraicDifferentialEquations(); }
 		
@@ -459,15 +478,19 @@ namespace OpenSMOKE
 		const Eigen::VectorXd&	T() const { return T_; }
 
 		/**
-		*@brief Returns the current mass flow rate
+		*@brief Returns the ???
 		*/
-		const Eigen::VectorXd&	m() const { return m_; }
+		const Eigen::VectorXd&	U() const { return U_; }
 
 		/**
-		*@brief Returns the current axial velocity
+		*@brief Returns the ???
 		*/
-		double v(const unsigned int i) const { return m_(i) / rho_(i); }
+		const Eigen::VectorXd&	G() const { return G_; }
 
+		/**
+		*@brief Returns the ???
+		*/
+		const Eigen::VectorXd&	H() const { return H_; }
 
 		/**
 		*@brief Performs the sensitivity analysis
@@ -486,16 +509,10 @@ namespace OpenSMOKE
 		boost::filesystem::path output_folder() const { return output_folder_;  }
 
 		/**
-		*@brief Returns the current flame speed
-		*/
-		double flame_speed() const { return m_(0) / rho_(0); }
-
-		/**
 		*@brief Initialize the solver from a backup solution
 		*@param name_file name of file corresponding to the backup solution
-		*@param use_userdefined_grid if false, the grid corresponding to the backup file is adopted
 		*/
-		void InitializeFromBackupFile(const boost::filesystem::path name_file, const bool use_userdefined_grid);
+		void InitializeFromBackupFile(const boost::filesystem::path name_file);
 
 		/**
 		*@brief Calculates only the main diagonal of the Jacobian matrix
@@ -524,13 +541,6 @@ namespace OpenSMOKE
 		*/
 		void SparsityPattern(std::vector<unsigned int>& rows, std::vector<unsigned int>& cols);
 
-		/**
-		*@brief Calculates the dynamic viscosity according to the (simplified) Sutherland's law
-		*@param T temperature (in K)
-		*@return the dynamic viscosity (in kg/m/s)
-		*/
-		double SutherlandViscosity(const double T);
-
 	private:
 
 		/**
@@ -550,7 +560,9 @@ namespace OpenSMOKE
 
 		/**
 		*@brief Calculates the local residence time
-		*@param tau the calculated local residence time
+		*@param tau the calculated local residence time [s]
+		        the residence time is positive if calculated from the fuel side,
+				negative if calculated from the oxidizer side
 		*/
 		void ResidenceTime(Eigen::VectorXd& tau);
 
@@ -560,12 +572,28 @@ namespace OpenSMOKE
 		void SetAlgebraicDifferentialEquations();
 
 		/**
+		*@brief Returns the equations for momentum only
+		*@param t current time
+		*@param y current solution
+		*@param dy residuals (in case of algebraic equations) or time derivatives (in case of differential equations)
+		*/
+		void Equations_Momentum(const double t, const double* y, double* dy);
+
+		/**
+		*@brief Returns the equations for mass fractions of species and momentum
+		*@param t current time
+		*@param y current solution
+		*@param dy residuals (in case of algebraic equations) or time derivatives (in case of differential equations)
+		*/
+		void Equations_MassFractions_Momentum(const double t, const double* y, double* dy);
+
+		/**
 		*@brief Returns the equations for mass fractions of species, temperature, and mass flow rate
 		*@param t current time
 		*@param y current solution
 		*@param dy residuals (in case of algebraic equations) or time derivatives (in case of differential equations)
 		*/
-		void Equations_MassFractions_Temperature_MassFlowRate(const double t, const double* y, double* dy);
+		void Equations_MassFractions_Temperature_Momentum(const double t, const double* y, double* dy);
 
 		/**
 		*@brief Returns the equations for mass fractions of species and temperature
@@ -616,6 +644,14 @@ namespace OpenSMOKE
 		void Equations_MassFractions_Temperature_HMOM(const double t, const double* y, double* dy);
 
 		/**
+		*@brief Returns the equations for mixture fraction
+		*@param t current time
+		*@param y current solution
+		*@param dy residuals (in case of algebraic equations) or time derivatives (in case of differential equations)
+		*/
+		void Equations_MixtureFraction(const double t, const double* y, double* dy);
+
+		/**
 		*@brief Builds the equations of species mass fractions
 		*/
 		void SubEquations_MassFractions();
@@ -626,14 +662,19 @@ namespace OpenSMOKE
 		void SubEquations_Temperature();
 
 		/**
-		*@brief Builds the equations of mass flow rate
+		*@brief Builds the equations of momentum
 		*/
-		void SubEquations_MassFlowRate();
+		void SubEquations_Momentum();
 
 		/**
 		*@brief Builds the equations of HMOMs
 		*/
 		void SubEquations_HMOM();
+
+		/**
+		*@brief Builds the mixture fraction equations
+		*/
+		void SubEquations_MixtureFraction();
 
 		/**
 		*@brief Updates the current solution from the provided vector
@@ -653,35 +694,33 @@ namespace OpenSMOKE
 		*/
 		void Jacobian(OpenSMOKE::OpenSMOKEBandMatrixDouble* J);
 
+		/**
+		*@brief Calculates the soot deposition rate (in kg/m2/s) along the right wall
+		*/
+		void SootDepositionOnTheWall();
+
+		/**
+		*@brief Updates the boundary conditions in case of dynamic simulations
+		*@param the current time (in s)
+		*/
+		void UpdateBoundaries(const double t);
+
+		/**
+		*@brief Calculates the dynamic viscosity according to the (simplified) Sutherland's law
+		*@param T temperature (in K)
+		*@return the dynamic viscosity (in kg/m/s)
+		*/
+		double SutherlandViscosity(const double T);
+
 	private:	// solutions
 
 		/**
-		*@brief Calculates the initial solution for a flame-speed problem
+		*@brief Calculates the initial solution for a counterflow diffusion flame problem
 		*@param dae_parameter parameters governing the solution of DAE systems
 		*@param nls_parameters parameters governing the solution of NL systems
 		*@param false_transient_parameters parameters governing the solution of false-transients
 		*/
-		int InitialSolutionFlameSpeed(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
-			NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
-			NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters);
-
-		/**
-		*@brief Calculates the initial solution for a burner-stabilized problem
-		*@param dae_parameter parameters governing the solution of DAE systems
-		*@param nls_parameters parameters governing the solution of NL systems
-		*@param false_transient_parameters parameters governing the solution of false-transients
-		*/
-		int InitialSolutionBurnerStabilized(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
-			NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
-			NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters);
-
-		/**
-		*@brief Calculates the solution when the temperature profile is kept fixed
-		*@param dae_parameter parameters governing the solution of DAE systems
-		*@param nls_parameters parameters governing the solution of NL systems
-		*@param false_transient_parameters parameters governing the solution of false-transients
-		*/
-		int FixedTemperatureSolution(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
+		int InitialSolutionCounterFlowDiffusionFlame(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
 			NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
 			NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters);
 
@@ -696,15 +735,22 @@ namespace OpenSMOKE
 			NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters);
 
 		/**
-		*@brief Calculates the solution for a burner stabilized problem
+		*@brief Calculates the solution for a counterflow diffusion flame problem
 		*@param dae_parameter parameters governing the solution of DAE systems
 		*@param nls_parameters parameters governing the solution of NL systems
 		*@param false_transient_parameters parameters governing the solution of false-transients
 		*/
-		int SolveBurnerStabilized(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
+		int SolveCounterFlowDiffusionFlame(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
 			NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
 			NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters);
-		
+
+		/**
+		*@brief Calculates the solution for a counterflow diffusion flame problem with dynamic boundaries
+		*@param dae_parameter parameters governing the solution of DAE systems
+		*/
+		int SolveDynamicBoundariesCounterFlowDiffusionFlame(DaeSMOKE::DaeSolver_Parameters& dae_parameters);
+
+
 	private:
 
 		/**
@@ -717,7 +763,7 @@ namespace OpenSMOKE
 		*@brief Solves a single DAE system
 		*@param dae_parameter parameters governing the solution of DAE systems
 		*/
-		int SolveDAE(DaeSMOKE::DaeSolver_Parameters& dae_parameters, const double tEnd);
+		int SolveDAE(DaeSMOKE::DaeSolver_Parameters& dae_parameters, const double tEnd, const double tStart = 0.);
 
 		/**
 		*@brief Solves a single NL system
@@ -747,6 +793,12 @@ namespace OpenSMOKE
 		*@brief Quantifies the backdiffusion at the inlet section
 		*/
 		void CheckForInlet();
+
+		/**
+		*@brief Reconstructs the mixture fraction using the Bilger's formula
+		*@param i grid point
+		*/
+		double ReconstructMixtureFraction(const int i);
 
 	private:	// grid refinement
 
@@ -786,17 +838,23 @@ namespace OpenSMOKE
 		// Main variables
 		double							P_;			//!< pressure [Pa]
 		Eigen::VectorXd					T_;			//!< temperature [K]
-		Eigen::VectorXd					U_;			//!< velocity [m/s]
-		Eigen::VectorXd					m_;			//!< mass flow rate [kg/m2/s]
+		Eigen::VectorXd					U_;			//!< scaled momentum [kg/m2/s]
+		Eigen::VectorXd					G_;			//!< 
+		Eigen::VectorXd					H_;			//!< 
 		std::vector<Eigen::VectorXd>	Y_;			//!< mass fractions of species
 		std::vector<Eigen::VectorXd>	X_;			//!< mole fractions of species
-		
+
+		// Auxiliary variables
+		Eigen::VectorXd					M_;				//!< 
+		Eigen::VectorXd					G_over_rho_;	//!< 
+
 		// Mixture properties
 		Eigen::VectorXd					rho_;				//!< density [kg/m3]
 		Eigen::VectorXd					mw_;				//!< molecular weight [kg/kmol]
 		Eigen::VectorXd					cp_;				//!< constant pressure specific heat [J/kg/K]
 		std::vector<Eigen::VectorXd>	cp_species_;		//!< constant pressure specific heats of single species [J/kg/K]
 		Eigen::VectorXd					lambda_;			//!< thermal conductivity [W/m/K]
+		Eigen::VectorXd					mu_;				//!< dynamic viscosity [kg/m/s]
 		std::vector<Eigen::VectorXd>	gamma_fick_;		//!< ordinary (Fick) mass diffusion coefficients [m2/s]
 		std::vector<Eigen::VectorXd>	gamma_fick_star_;	//!< corrected ordinary (Fick) mass diffusion coefficients [m2/s]
 		std::vector<Eigen::VectorXd>	gamma_soret_star_;	//!< corrected Soret mass diffusion coefficients[m2/s]
@@ -816,19 +874,33 @@ namespace OpenSMOKE
 		Eigen::VectorXd					lambda_d2T_over_dx2_;		//!< 2nd order spatial derivative of (lambda*T) 
 		std::vector<Eigen::VectorXd>	dX_over_dx_;				//!< spatial derivative of mole fractions
 		std::vector<Eigen::VectorXd>	dY_over_dx_;				//!< spatial derivative of mass fractions
+		Eigen::VectorXd					dM_over_dx_;				//!< spatial derivative of ???
+		Eigen::VectorXd					dU_over_dx_;				//!< spatial derivative of ???
+		Eigen::VectorXd					mu_d2G_over_rho_over_dx2_;	//!< 2nd order spatial derivative of ???
 
 		// Time derivatives
 		std::vector<Eigen::VectorXd>	dY_over_dt_;				//!< time derivatives of mass fractions
 		Eigen::VectorXd					dT_over_dt_;				//!< time derivative of temperature
-		Eigen::VectorXd					dm_over_dt_;				//!< time derivative of mass flow rate
+		Eigen::VectorXd					dU_over_dt_;				//!< time derivative of ???
+		Eigen::VectorXd					dG_over_dt_;				//!< time derivative of ???
+		Eigen::VectorXd					dH_over_dt_;				//!< time derivative of ???
 
-		// Inlet/Outlet data
-		Eigen::VectorXd					Y_inlet_;					//!< mass fractions of inlet mixture
-		double							T_inlet_;					//!< temperature of inlet mixture
-		double							m_inlet_;					//!< inlet mass flow rate
-		double							v_inlet_;					//!< velocity of inlet mixture
-		double							T_outlet_;					//!< outlet temperature
-			
+		// Fuel side
+		Eigen::VectorXd					Y_fuel_;					//!< mass fractions of fuel mixture [-]
+		double							T_fuel_;					//!< temperature of fuel mixture [K]
+		double							U_fuel_;					//!< ???
+		double							radial_gradient_fuel_;		//!< radial gradient of fuel mixture [1/s]
+		double							rho_fuel_;					//!< ???
+		double							v_fuel_;					//!< ???
+
+		// Oxidizer
+		Eigen::VectorXd					Y_oxidizer_;				//!< mass fractions of oxidizer mixture [-]
+		double							T_oxidizer_;				//!< temperature of oxidizer mixture [K]
+		double							U_oxidizer_;				//!< ???
+		double							radial_gradient_oxidizer_;	//!< radial gradient of oxidizer mixture [1/s]
+		double							rho_oxidizer_;				//!< ???
+		double							v_oxidizer_;				//!< ???
+
 		// Algebraic/Differential equations
 		Eigen::VectorXi		differential_equations_;	//!< list of differential equations
 		Eigen::VectorXi		algebraic_equations_;		//!< list of algebraic equations
@@ -851,18 +923,21 @@ namespace OpenSMOKE
 		OpenSMOKE::VirtualChemistry* virtual_chemistry_;		//!< pointer to the virtual chemistry
 		bool is_simplified_transport_properties_;				//!< simplfied transport properties (thermal conductivity and viscosity)
 
+
 		// OnTheFlyPostProcessing
 		bool is_on_the_fly_post_processing_;							//!< true if the post processing (on the fly) is turned on
 		OpenSMOKE::OnTheFlyPostProcessing* on_the_fly_post_processing_;	//!< pointer to the post processing (on the fly)
 
-		// Fixed temperature profile
-		bool is_fixed_temperature_profile_;				//!< true if a fixed, user-defined temperature profile has to be used
-		FixedProfile* fixed_temperature_profile_;		//!< fixed temperature profile
+		// Dynamic boundaries
+		bool is_dynamic_boundaries_;						//!< true if the dynamic boundaries are turned on
+		OpenSMOKE::DynamicBoundaries* dynamic_boundaries_;	//!< pointer to the dynamic boundary object
 
-		// Fixed specific mass flow rate profile
-		bool is_fixed_specific_mass_flow_rate_profile_;			//!< true if a fixed, user-defined mass flow rate profile has to be used
-		FixedProfile* fixed_specific_mass_flow_rate_profile_;	//!< fixed specific mass flow rate profile
 
+		// Initial/Fixed temperature profile
+		bool is_userdefined_fixed_temperature_profile_;			//!< true if a fixed, user-defined temperature profile has to be used
+		bool is_userdefined_initial_temperature_profile_;		//!< true if a initial, user-defined temperature profile has to be used
+		FixedProfile* userdefined_temperature_profile_;			//!< userdefined temperature profile
+		
 		// Radiative heat transfer
 		bool radiative_heat_transfer_;					//!< radiative heat transfer on/off
 		double environment_temperature_;				//!< temperature of external environment in K
@@ -870,13 +945,8 @@ namespace OpenSMOKE
 		Eigen::VectorXd	planck_mean_absorption_gas_;	//!< planck mean absorption coefficient gas phase [1/m]
 		Eigen::VectorXd	planck_mean_absorption_soot_;	//!< planck mean absorption coefficient soot [1/m]
 
-		// Derivatives
-		OpenSMOKE::derivative_type gas_temperature_1st_derivative_type_;
-		OpenSMOKE::derivative_type gas_mass_fractions_1st_derivative_type_;
-
 		// Additional variables
 		bool soret_effect_;				//!< soret effect on/off
-		double fixed_T_;				//!< in case of flame speed calculation, the temperature of fixed point
 		bool use_dae_solver_;			//!< true if the transient solutions have to be calculated (more robust approach)
 		bool use_nls_solver_;			//!< true if after the DAE solution, the NLS solution is attempted (more accurate approach)
 		double timeFixedTemperature_;	//!< time for solving the DAE system in case of fixed temperature (default 1 s)
@@ -886,6 +956,7 @@ namespace OpenSMOKE
 		// Output
 		unsigned int n_steps_video_;				//!< number of steps for updating info on the screen
 		unsigned int count_video_;					//!< counter of steps for updating info on the screen
+		unsigned int iterations_;					//!< number of iterations
 		boost::filesystem::path output_folder_;		//!< name of output folder
 
 		// Auxiliary vectors
@@ -901,19 +972,47 @@ namespace OpenSMOKE
 		std::vector<Eigen::VectorXd>	dhmom_M_over_dx_;		//!< spatial derivative of normalized HMOMs
 		std::vector<Eigen::VectorXd>	dhmom_M_over_dt_;		//!< time derivative of normalized HMOMs
 		std::vector<Eigen::VectorXd>	hmom_M_;				//!< normalized HMOMs
-		
-		MassDiffusionCoefficients_Type mass_diffusion_coefficients_type_;
-		std::vector<double> lewis_numbers_;
+		std::vector<Eigen::VectorXd>	d2hmom_M_over_dx2_;		//!< 2nd order spatial derivative of normalized HMOMs
+		std::vector<Eigen::VectorXd>	hmom_thermophoresis_;	//!< thermophoretic contribution in HMOM [mol.kg/m6/s] 
+
+		// Mixture fraction
+		Eigen::VectorXd rho_times_alpha_d2csi_over_dx2_;	//!< spatial 2nd order derivative of mixture fraction
+		Eigen::VectorXd	dcsi_over_dx_;						//!< spatial derivative of mixture fraction
+		Eigen::VectorXd	dcsi_over_dt_;						//!< time derivative of mixture fraction
+		Eigen::VectorXd	csi_;								//!< mixture fraction
 
 		// To be used only if the BzzMath libraries are available
 		#if OPENSMOKE_USE_BZZMATH == 1
 		BzzDaeSparseObject dae_object_;
 		BzzNonLinearSystemSparseObject nls_object_;
 		#endif
+
+		double n_geometry_;
+		Eigen::VectorXd boundary_fuel_mass_fractions_;
+		Eigen::VectorXd boundary_oxidizer_mass_fractions_;
+		
+		Eigen::VectorXd Y_peak_;
+		double T_peak_;
+
+		double x_peak_;
+		double width_mixing_;
+		double H_starting_guess_;
+		InitialProfile_Type initial_profile_type_;
+
+		OpenSMOKE::derivative_type derivative_type_species_;
+		OpenSMOKE::derivative_type derivative_type_temperature_;
+
+		double gas_reaction_rate_multiplier_;
+
+		MassDiffusionCoefficients_Type mass_diffusion_coefficients_type_;
+		std::vector<double> lewis_numbers_;
+
+		bool is_deposition_wall_;
+		double soot_deposition_;
 	};
 }
 
-#include "OpenSMOKE_PremixedLaminarFlame1D.hpp"
+#include "OpenSMOKE_CounterFlowFlame1D.hpp"
 
-#endif /* OpenSMOKE_PremixedLaminarFlame1D_H */
+#endif /* OpenSMOKE_CounterFlowFlame1D_H */
 

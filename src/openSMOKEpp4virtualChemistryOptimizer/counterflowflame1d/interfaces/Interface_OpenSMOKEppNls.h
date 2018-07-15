@@ -24,19 +24,48 @@
 |                                                                         |
 \*-----------------------------------------------------------------------*/
 
-typedef struct 
+#include "math/native-nls-solvers/NonLinearSystemSolver"
+
+class OpenSMOKE_Flame1D_MyNlsSystem_OpenSMOKEpp_CounterFlowFlame1D
 {
-	double* yInitial;
-} *KINSolUserData;
+public:
 
-static int kinsol_equations(N_Vector u, N_Vector f, void *user_data)
-{
-	realtype *pt_y = NV_DATA_S(u);
-	realtype *pt_res = NV_DATA_S(f);
+	OpenSMOKE_Flame1D_MyNlsSystem_OpenSMOKEpp_CounterFlowFlame1D()
+	{
+	};
 
-	flame_premixed->Equations(0., pt_y, pt_res);
+	void assign(OpenSMOKE::OpenSMOKE_CounterFlowFlame1D *flame)
+	{
+		ptFlame = flame;
+	}
 
-	return 0;
-}
+private:
 
-#include "math/native-nls-solvers/interfaces/Band_KinSol.h"
+	OpenSMOKE::OpenSMOKE_CounterFlowFlame1D *ptFlame;
+
+protected:
+
+	unsigned int ne_;
+
+	void MemoryAllocation()
+	{
+	}
+
+	virtual void Equations(const Eigen::VectorXd &x, Eigen::VectorXd &f)
+	{
+		ptFlame->Equations(0., x.data(), f.data());
+	}
+
+	void Jacobian(const Eigen::VectorXd &y, Eigen::MatrixXd &J)
+	{
+	};
+
+	void Print(const int call, const double t, const double phiW, const Eigen::VectorXd &x, const Eigen::VectorXd &f)
+	{
+		flame_cfdf->Print(x.data(), phiW);
+	}
+};
+
+#include "math/native-nls-solvers/interfaces/Band_OpenSMOKEppNls.h"
+#include "math/native-nls-solvers/interfaces/Sparse_OpenSMOKEppNls.h"
+

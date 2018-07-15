@@ -39,8 +39,8 @@ int ida_equations(realtype t, N_Vector y, N_Vector yp, N_Vector res, void *user_
 	realtype *pt_res = NV_DATA_S(res);
 	realtype *pt_yp = NV_DATA_S(yp);
 
-	flame->Equations(t, pt_y, pt_res);
-	flame->CorrectDifferentialEquations(pt_yp, pt_res);
+	flame_premixed->Equations(t, pt_y, pt_res);
+	flame_premixed->CorrectDifferentialEquations(pt_yp, pt_res);
 
 	return 0;
 }
@@ -50,8 +50,8 @@ int ida_initial_derivatives(realtype t, N_Vector y, N_Vector yp, void *user_data
 	realtype *pt_y = NV_DATA_S(y);
 	realtype *pt_yp = NV_DATA_S(yp);
 
-	flame->Equations(t, pt_y, pt_yp);
-	flame->CorrectAlgebraicEquations(pt_yp);
+	flame_premixed->Equations(t, pt_y, pt_yp);
+	flame_premixed->CorrectAlgebraicEquations(pt_yp);
 	
 	return 0;
 }
@@ -64,8 +64,8 @@ int ida_preconditioner_setup(realtype t, N_Vector y, N_Vector yp, N_Vector rr, r
 	realtype *pt_y = NV_DATA_S(y);
 	realtype *pt_J = NV_DATA_S(data->J);
 	
-	flame->DiagonalJacobian(t, pt_y, pt_J);
-	flame->DiagonalJacobianForIDA(c_j, pt_J);
+	flame_premixed->DiagonalJacobian(t, pt_y, pt_J);
+	flame_premixed->DiagonalJacobianForIDA(c_j, pt_J);
 
 	realtype *pt_invJ = NV_DATA_S(data->invJ);
 	for (int i = 0; i < NV_LENGTH_S(y); i++)
@@ -87,7 +87,7 @@ int ida_preconditioner_solution(realtype t, N_Vector y, N_Vector yp, N_Vector rr
 int ida_print_solution(realtype t, N_Vector y)
 {
 	double* ydata = N_VGetArrayPointer(y);
-	flame->Print(t, ydata);
+	flame_premixed->Print(t, ydata);
 	return 0;
 }
 

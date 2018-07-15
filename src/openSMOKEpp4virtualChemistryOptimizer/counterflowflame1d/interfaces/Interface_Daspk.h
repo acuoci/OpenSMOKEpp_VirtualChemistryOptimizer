@@ -24,19 +24,37 @@
 |                                                                         |
 \*-----------------------------------------------------------------------*/
 
-typedef struct 
+#include <boost/timer/timer.hpp>
+
+static void DaspkEquations(double *t, double *y, double *dy, double *cj, double *delta, int *ires, double *rpar, int *ipar)
 {
-	double* yInitial;
-} *KINSolUserData;
-
-static int kinsol_equations(N_Vector u, N_Vector f, void *user_data)
-{
-	realtype *pt_y = NV_DATA_S(u);
-	realtype *pt_res = NV_DATA_S(f);
-
-	flame_premixed->Equations(0., pt_y, pt_res);
-
-	return 0;
+	flame_cfdf->Equations(*t, y, delta);
+	flame_cfdf->CorrectDifferentialEquations(dy, delta);
 }
 
-#include "math/native-nls-solvers/interfaces/Band_KinSol.h"
+static void DaspkAlgebraicDifferentialVector(double* v)
+{
+	// Returns 1. if differential, 0. if algebraic
+	flame_cfdf->AlgebraicDifferentialVector(v);
+}
+
+void DaspkInitialDerivatives(double t, double *y, double *yp)
+{
+	flame_cfdf->Equations(t, y, yp);
+	flame_cfdf->CorrectAlgebraicEquations(yp);
+}
+
+static void DaspkAnalyticalJacobian(double *x, double *y, double *dy, double *pd, double *cj, double *rpar, int *ipar)
+{
+}
+
+static void DaspkKrylovSolver(int *n, double *x, double *y, double *dy, double *savr, double *wk, double *cj, double *wght, double *wp, int *iwp, double *b, double *eplin, int *ier, double *rpar, int *ipar)
+{
+}
+
+static void DaspkPrintSolution(double *x, double *y)
+{
+	flame_cfdf->Print(*x, y);
+}
+
+#include "math/native-dae-solvers/interfaces/Band_Daspk.h"

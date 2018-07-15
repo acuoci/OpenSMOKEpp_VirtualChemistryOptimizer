@@ -34,35 +34,40 @@
 |                                                                         |
 \*-----------------------------------------------------------------------*/
 
-#ifndef OpenSMOKE_PremixedLaminarFlame1D_Utilities_H
-#define OpenSMOKE_PremixedLaminarFlame1D_Utilities_H
+FixedProfile::FixedProfile(const unsigned int n, const double* x, const double* y)
+{
+	n_ = n;
+	x_.resize(n_);
+	y_.resize(n_);
+	for (unsigned int i = 0; i < n_; i++)
+	{
+		x_(i) = x[i];
+		y_(i) = y[i];
+	}
+}
 
-	/**
-	*@brief Reads a solution from a backup file
-	*@param path_file path to the backup file
-	*@param x axial coordinate [m]
-	*@param T temperatures [K]
-	*@param P pressure profile [Pa]
-	*@param m mass flow rate profile [kg/m2/s]
-	*@param omega species mass fractions profiles
-	*@param names_species names of species
-	*/
-	void ReadFromBackupFile(const boost::filesystem::path path_file, std::vector<double>& x, std::vector<double>& T, std::vector<double>& P, 
-							std::vector<double>& m, std::vector< std::vector<double> >& omega, std::vector<std::string>& names_species);
+void FixedProfile::Interpolate(const Eigen::VectorXd& xx, Eigen::VectorXd& yy)
+{
+	yy.resize(xx.size());
 
-	/**
-	*@brief Reads a solution from a backup file
-	*@param path_file path to the backup file
-	*@param thermodynamicsMap thermodynamic map from which names of species can be extracted
-	*@param x axial coordinate [m]
-	*@param T temperatures [K]
-	*@param P pressure profile [Pa]
-	*@param m mass flow rate profile [kg/m2/s]
-	*@param omega species mass fractions profiles
-	*/
-	void ReadFromBackupFile(const boost::filesystem::path path_file, OpenSMOKE::ThermodynamicsMap_CHEMKIN& thermodynamicsMap,
-							std::vector<double>& x, std::vector<double>& T, std::vector<double>& P, std::vector<double>& m, std::vector< std::vector<double> >& omega);
+	if (std::fabs(x_(0) - xx(0)) > 1.e-12)
+		OpenSMOKE::FatalErrorMessage("Interpolating fixed profile: the requested coordinate is smaller than the minimum available coordinate");
 
-#include "Utilities.hpp"
+	if (std::fabs(xx(xx.size() - 1) - x_(n_ - 1)) > 1.e-12)
+		OpenSMOKE::FatalErrorMessage("Interpolating fixed profile: the requested coordinate is larger than the maximum available coordinate");
 
-#endif	// OpenSMOKE_PremixedLaminarFlame1D_Utilities_H
+	yy(0) = y_(0);
+	yy(yy.size() - 1) = y_(y_.size() - 1);
+
+	for (int i = 1; i < xx.size() - 1; i++)
+	{
+		for (unsigned int j = 1; j < n_; j++)
+		{
+			if (xx(i) <= x_(j))
+			{
+				yy(i) = y_(j - 1) + (y_(j) - y_(j - 1)) / (x_(j) - x_(j - 1)) * (xx(i) - x_(j - 1));
+				break;
+			}
+		}
+	}
+}

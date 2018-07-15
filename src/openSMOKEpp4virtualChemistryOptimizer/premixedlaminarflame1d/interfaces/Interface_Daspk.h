@@ -28,20 +28,20 @@
 
 static void DaspkEquations(double *t, double *y, double *dy, double *cj, double *delta, int *ires, double *rpar, int *ipar)
 {
-	flame->Equations(*t, y, delta);
-	flame->CorrectDifferentialEquations(dy, delta);
+	flame_premixed->Equations(*t, y, delta);
+	flame_premixed->CorrectDifferentialEquations(dy, delta);
 }
 
 static void DaspkAlgebraicDifferentialVector(double* v)
 {
 	// Returns 1. if differential, 0. if algebraic
-	flame->AlgebraicDifferentialVector(v);
+	flame_premixed->AlgebraicDifferentialVector(v);
 }
 
 void DaspkInitialDerivatives(double t, double *y, double *yp)
 {
-	flame->Equations(t, y, yp);
-	flame->CorrectAlgebraicEquations(yp);
+	flame_premixed->Equations(t, y, yp);
+	flame_premixed->CorrectAlgebraicEquations(yp);
 }
 
 static void DaspkAnalyticalJacobian(double *x, double *y, double *dy, double *pd, double *cj, double *rpar, int *ipar)
@@ -54,7 +54,7 @@ static void DaspkKrylovSolver(int *n, double *x, double *y, double *dy, double *
 
 static void DaspkPrintSolution(double *x, double *y)
 {
-	flame->Print(*x, y);
+	flame_premixed->Print(*x, y);
 }
 
 #include "math/native-dae-solvers/interfaces/Band_Daspk.h"

@@ -34,7 +34,7 @@ static int kinsol_equations(N_Vector u, N_Vector f, void *user_data)
 	realtype *pt_y = NV_DATA_S(u);
 	realtype *pt_res = NV_DATA_S(f);
 
-	flame_premixed->Equations(0., pt_y, pt_res);
+	flame_cfdf->Equations(0., pt_y, pt_res);
 
 	return 0;
 }

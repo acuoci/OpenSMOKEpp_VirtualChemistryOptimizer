@@ -80,7 +80,7 @@ private:
 
 void FalseTransientPrint(BzzVector &y, double t)
 {
-	flame->Print(t, y.GetHandle());
+	flame_premixed->Print(t, y.GetHandle());
 }
 
 #include "math/native-nls-solvers/interfaces-false-transient/Band_BzzNlsFalseTransient.h"

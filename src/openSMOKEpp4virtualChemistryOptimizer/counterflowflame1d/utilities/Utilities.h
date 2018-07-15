@@ -34,8 +34,8 @@
 |                                                                         |
 \*-----------------------------------------------------------------------*/
 
-#ifndef OpenSMOKE_PremixedLaminarFlame1D_Utilities_H
-#define OpenSMOKE_PremixedLaminarFlame1D_Utilities_H
+#ifndef OpenSMOKE_CounterFlowFlame1D_Utilities_H
+#define OpenSMOKE_CounterFlowFlame1D_Utilities_H
 
 	/**
 	*@brief Reads a solution from a backup file
@@ -43,12 +43,14 @@
 	*@param x axial coordinate [m]
 	*@param T temperatures [K]
 	*@param P pressure profile [Pa]
-	*@param m mass flow rate profile [kg/m2/s]
+	*@param U
+	*@param G
+	*@param H
 	*@param omega species mass fractions profiles
 	*@param names_species names of species
 	*/
 	void ReadFromBackupFile(const boost::filesystem::path path_file, std::vector<double>& x, std::vector<double>& T, std::vector<double>& P, 
-							std::vector<double>& m, std::vector< std::vector<double> >& omega, std::vector<std::string>& names_species);
+							std::vector<double>& U, std::vector<double>& G, std::vector<double>& H, std::vector< std::vector<double> >& omega, std::vector<std::string>& names_species);
 
 	/**
 	*@brief Reads a solution from a backup file
@@ -61,8 +63,15 @@
 	*@param omega species mass fractions profiles
 	*/
 	void ReadFromBackupFile(const boost::filesystem::path path_file, OpenSMOKE::ThermodynamicsMap_CHEMKIN& thermodynamicsMap,
-							std::vector<double>& x, std::vector<double>& T, std::vector<double>& P, std::vector<double>& m, std::vector< std::vector<double> >& omega);
+							std::vector<double>& x, std::vector<double>& T, std::vector<double>& P, std::vector<double>& U, std::vector<double>& G, std::vector<double>& H, std::vector< std::vector<double> >& omega);
+
+
+	double triangular_profile(const double y_fuel, const double y_oxidizer, const double y_peak, const double x_center, const double width_mixing, const double x);
+
+	double linear_profile(const double y_fuel, const double y_oxidizer, const double x_center, const double width_mixing, const double x);
+
+	double plateau_profile(const double y_fuel, const double y_oxidizer, const double y_peak, const double x_center, const double width_mixing, const double x_length, const double x);
 
 #include "Utilities.hpp"
 
-#endif	// OpenSMOKE_PremixedLaminarFlame1D_Utilities_H
+#endif	// OpenSMOKE_CounterFlowFlame1D_Utilities_H

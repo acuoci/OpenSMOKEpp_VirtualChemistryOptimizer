@@ -24,19 +24,64 @@
 |                                                                         |
 \*-----------------------------------------------------------------------*/
 
-typedef struct 
+class OpenSMOKE_Flame1D_MyFalseTransientSystem_CounterFlowFlame1D : public BzzMyNonLinearSystemSparseObject
 {
-	double* yInitial;
-} *KINSolUserData;
+public:
 
-static int kinsol_equations(N_Vector u, N_Vector f, void *user_data)
+	void assign(OpenSMOKE::OpenSMOKE_CounterFlowFlame1D *flame)
+	{
+		ptFlame = flame;
+	}
+	
+	void SetInitialConditions(const BzzVector& yInitial)
+	{
+		yInitial_ = yInitial;
+	}
+
+	void SetDifferentialAlgebraic(const BzzVectorInt& indices_differential_algebraic)
+	{
+		indices_differential_algebraic_ = indices_differential_algebraic;
+	}
+	
+	void SetTimeStep(const double deltat)
+	{
+		deltat_ = deltat;
+	}
+
+	virtual void GetResiduals(BzzVector &y, BzzVector &f)
+	{
+		double* pty = y.GetHandle();
+		double* ptf = f.GetHandle();
+
+		ptFlame->Equations(0., pty, ptf);
+
+		for (int i = 1; i <= y.Size(); i++)
+		if (indices_differential_algebraic_[i] == 1)
+			f[i] = y[i] - yInitial_[i] - f[i] * deltat_;
+	}
+
+	virtual void ObjectBzzPrint(void)
+	{
+	}
+
+public:
+
+	double deltat() const { return deltat_; }
+	const BzzVector& InitialConditions() const { return yInitial_; }
+	BzzVector& InitialConditions() { return yInitial_; }
+
+private:
+
+	OpenSMOKE::OpenSMOKE_CounterFlowFlame1D *ptFlame;
+	double deltat_;
+	BzzVector yInitial_;
+	BzzVectorInt indices_differential_algebraic_;
+};
+
+void FalseTransientPrint(BzzVector &y)
 {
-	realtype *pt_y = NV_DATA_S(u);
-	realtype *pt_res = NV_DATA_S(f);
-
-	flame_premixed->Equations(0., pt_y, pt_res);
-
-	return 0;
+	flame_cfdf->Print(0., y.GetHandle());
 }
 
-#include "math/native-nls-solvers/interfaces/Band_KinSol.h"
+#include "math/native-nls-solvers/interfaces-false-transient/Band_BzzNlsFalseTransient.h"
+

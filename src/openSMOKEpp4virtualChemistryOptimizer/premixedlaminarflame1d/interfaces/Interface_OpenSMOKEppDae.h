@@ -62,7 +62,7 @@ protected:
 
 	void Print(const double t, const Eigen::VectorXd &y)
 	{
-		flame->Print(t, y.data());
+		flame_premixed->Print(t, y.data());
 	}
 };
 

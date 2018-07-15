@@ -36,8 +36,9 @@
 
 #include "math/OpenSMOKEUtilities.h"
 #include "utilities/sensitivityanalysis/SensitivityAnalysisMap_BlockTridiagonal_SteadyState.h"
+#include "utilities/Utilities.h"
 
-OpenSMOKE::OpenSMOKE_PremixedLaminarFlame1D* flame_premixed;
+OpenSMOKE::OpenSMOKE_CounterFlowFlame1D* flame_cfdf;
 
 // OpenSMOKE++ Solvers
 #include "interfaces/Interface_OpenSMOKEppDae.h"
@@ -67,10 +68,10 @@ OpenSMOKE::OpenSMOKE_PremixedLaminarFlame1D* flame_premixed;
 
 namespace OpenSMOKE
 {
-	OpenSMOKE_PremixedLaminarFlame1D::OpenSMOKE_PremixedLaminarFlame1D(	OpenSMOKE::ThermodynamicsMap_CHEMKIN& thermodynamicsMap,
-																		OpenSMOKE::KineticsMap_CHEMKIN& kineticsMap,
-																		OpenSMOKE::TransportPropertiesMap_CHEMKIN& transportMap,
-																		OpenSMOKE::Grid1D& grid) :
+	OpenSMOKE_CounterFlowFlame1D::OpenSMOKE_CounterFlowFlame1D(	OpenSMOKE::ThermodynamicsMap_CHEMKIN& thermodynamicsMap,
+																OpenSMOKE::KineticsMap_CHEMKIN& kineticsMap,
+																OpenSMOKE::TransportPropertiesMap_CHEMKIN& transportMap,
+																OpenSMOKE::Grid1D& grid) :
 
 		thermodynamicsMap_(thermodynamicsMap),
 		kineticsMap_(kineticsMap),
@@ -79,11 +80,40 @@ namespace OpenSMOKE
 	{
 		sensitivity_analysis_ = false;
 		type_ = SIMULATION_TYPE_Y;
-		solver_type_ = SOLVER_TYPE_FLAMESPEED;
+		solver_type_ = SOLVER_TYPE_COUNTERFLOW_DIFFUSION;
 		soret_effect_ = false;
 		n_steps_video_ = 10;
+		n_geometry_ = 3.;
+
+		// Default initial profiles: linear
+		T_peak_ = 0.;
+		x_peak_ = 0.;
+		width_mixing_ = 0.;
+		initial_profile_type_ = INITIAL_PROFILE_TYPE_LINEAR;
+
+		// Default starting guess value for H [kg/m3/s2]
+		H_starting_guess_ = -100.;
+
+		// Radial gradients (by default they are assumed equal to zero)
+		radial_gradient_fuel_ = 0.;
+		radial_gradient_oxidizer_ = 0.;
+
+		// Gas reaction rate multiplier
+		gas_reaction_rate_multiplier_ = 1.;
+
+		// Diffusion coefficients (by default they are calculated using the molecular theory of gases)
+		mass_diffusion_coefficients_type_ = MASS_DIFFUSION_COEFFICIENTS_TYPE_MOLECULAR_THEORY_GASES;
+
+		// Default derivatives for convective terms: upwind
+		derivative_type_temperature_ = DERIVATIVE_1ST_UPWIND;
+		derivative_type_species_ = DERIVATIVE_1ST_UPWIND;
+
+		// Radiative heat transfer
+		radiative_heat_transfer_ = false;
+		environment_temperature_ = 298.15;
 
 		count_video_ = n_steps_video_;
+		iterations_ = 0;
 
 		output_folder_ = "Output";
 		use_dae_solver_ = true;
@@ -95,53 +125,48 @@ namespace OpenSMOKE
 
 		is_hmom_soot_ = false;
 		is_polimi_soot_ = false;
-		is_on_the_fly_post_processing_ = false;
-		is_fixed_temperature_profile_ = false;
-		is_fixed_specific_mass_flow_rate_profile_ = false;
+		is_deposition_wall_ = false;
+		soot_deposition_ = 0.;
 		is_virtual_chemistry_ = false;
 		is_simplified_transport_properties_ = false;
 
-		gas_temperature_1st_derivative_type_ = OpenSMOKE::DERIVATIVE_1ST_BACKWARD;
-		gas_mass_fractions_1st_derivative_type_ = OpenSMOKE::DERIVATIVE_1ST_BACKWARD;
-
-		// Diffusion coefficients (by default they are calculated using the molecular theory of gases)
-		mass_diffusion_coefficients_type_ = MASS_DIFFUSION_COEFFICIENTS_TYPE_MOLECULAR_THEORY_GASES;
-
-		radiative_heat_transfer_ = false;
-		environment_temperature_ = 298.15;
+		is_on_the_fly_post_processing_ = false;
+		is_userdefined_fixed_temperature_profile_ = false;
+		is_userdefined_initial_temperature_profile_ = false;
+		is_dynamic_boundaries_ = false;
 
 		MemoryAllocation();
 		SetAlgebraicDifferentialEquations();
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetSolverType(const std::string solver_type)
+	void OpenSMOKE_CounterFlowFlame1D::SetSolverType(const std::string solver_type)
 	{
-		if (solver_type == "FlameSpeed")			solver_type_ = SOLVER_TYPE_FLAMESPEED;
-		else if (solver_type == "BurnerStabilized")	solver_type_ = SOLVER_TYPE_BURNERSTABILIZED;
-		else FatalErrorMessage("Unknown solver type. The allowed solver types are: FlameSpeed | BurnerStabilized");
+		if (solver_type == "CounterFlowDiffusion")				solver_type_ = SOLVER_TYPE_COUNTERFLOW_DIFFUSION;
+		else if (solver_type == "BurnerStabilizedStagnation")	solver_type_ = SOLVER_TYPE_BURNER_STABILIZED_STAGNATION;
+		else FatalErrorMessage("Unknown solver type. The allowed solver types are: CounterFlowDiffusion | BurnerStabilizedStagnation");
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetSoret(const bool soret)
+	void OpenSMOKE_CounterFlowFlame1D::SetSoret(const bool soret)
 	{
 		soret_effect_ = soret;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetSimplifiedTransportProperties(const bool flag)
+	void OpenSMOKE_CounterFlowFlame1D::SetSimplifiedTransportProperties(const bool flag)
 	{
 		is_simplified_transport_properties_ = flag;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetRadiativeHeatTransfer(const bool radiative_heat_transfer)
+	void OpenSMOKE_CounterFlowFlame1D::SetRadiativeHeatTransfer(const bool radiative_heat_transfer)
 	{
 		radiative_heat_transfer_ = radiative_heat_transfer;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetEnvironmentTemperature(const double environment_temperature)
+	void OpenSMOKE_CounterFlowFlame1D::SetEnvironmentTemperature(const double environment_temperature)
 	{
 		environment_temperature_ = environment_temperature;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetPolimiSoot(OpenSMOKE::PolimiSoot_Analyzer* polimi_soot_analyzer)
+	void OpenSMOKE_CounterFlowFlame1D::SetPolimiSoot(OpenSMOKE::PolimiSoot_Analyzer* polimi_soot_analyzer)
 	{
 		polimi_soot_analyzer_ = polimi_soot_analyzer;
 		is_polimi_soot_ = true;
@@ -154,37 +179,262 @@ namespace OpenSMOKE
 		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetVirtualChemistry(OpenSMOKE::VirtualChemistry* virtual_chemistry)
+	void OpenSMOKE_CounterFlowFlame1D::SetVirtualChemistry(OpenSMOKE::VirtualChemistry* virtual_chemistry)
 	{
 		virtual_chemistry_ = virtual_chemistry;
 		is_virtual_chemistry_ = true;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetOnTheFlyPostProcessing(OpenSMOKE::OnTheFlyPostProcessing* on_the_fly_post_processing)
+	void OpenSMOKE_CounterFlowFlame1D::SetDepositionWall(const bool flag)
+	{
+		is_deposition_wall_ = flag;
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::SetOnTheFlyPostProcessing(OpenSMOKE::OnTheFlyPostProcessing* on_the_fly_post_processing)
 	{
 		on_the_fly_post_processing_ = on_the_fly_post_processing;
 		is_on_the_fly_post_processing_ = true;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetFixedTemperatureProfile(const OpenSMOKE::OpenSMOKEVectorDouble& x, const OpenSMOKE::OpenSMOKEVectorDouble& T)
+	void OpenSMOKE_CounterFlowFlame1D::SetFixedTemperatureProfile(const OpenSMOKE::OpenSMOKEVectorDouble& x, const OpenSMOKE::OpenSMOKEVectorDouble& T)
 	{
-		if (solver_type_ == SOLVER_TYPE_FLAMESPEED)
-			FatalErrorMessage("The @FixedTemperatureProfile option cannot be used for calculating laminar flames speed");
-
-		is_fixed_temperature_profile_ = true;
-		fixed_temperature_profile_ = new FixedProfile(x.Size(), x.GetHandle(), T.GetHandle());
+		is_userdefined_fixed_temperature_profile_ = true;
+		is_userdefined_initial_temperature_profile_ = true;
+		userdefined_temperature_profile_ = new FixedProfile(x.Size(), x.GetHandle(), T.GetHandle());
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetFixedSpecificMassFlowRateProfile(const OpenSMOKE::OpenSMOKEVectorDouble& x, const OpenSMOKE::OpenSMOKEVectorDouble& m)
+	void OpenSMOKE_CounterFlowFlame1D::SetInitialTemperatureProfile(const OpenSMOKE::OpenSMOKEVectorDouble& x, const OpenSMOKE::OpenSMOKEVectorDouble& T)
 	{
-		if (solver_type_ == SOLVER_TYPE_FLAMESPEED)
-			FatalErrorMessage("The @FixedSpecificMassFlowRateProfile option cannot be used for calculating laminar flames speed");
-
-		is_fixed_specific_mass_flow_rate_profile_ = true;
-		fixed_specific_mass_flow_rate_profile_ = new FixedProfile(x.Size(), x.GetHandle(), m.GetHandle());
+		is_userdefined_initial_temperature_profile_ = true;
+		userdefined_temperature_profile_ = new FixedProfile(x.Size(), x.GetHandle(), T.GetHandle());
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetLewisNumbers(const std::vector<double> lewis_numbers)
+	void OpenSMOKE_CounterFlowFlame1D::SetDynamicBoundaries(OpenSMOKE::DynamicBoundaries* dynamic_boundaries)
+	{
+		dynamic_boundaries_ = dynamic_boundaries;
+		is_dynamic_boundaries_ = true;
+
+		if (is_virtual_chemistry_ == true)
+			dynamic_boundaries_->SetVirtualChemistry(virtual_chemistry_);
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::SetupForBurnerStabilized()
+	{
+		// In case the initial/fixed profile for temperature is provided by the user
+		if (is_userdefined_initial_temperature_profile_ == true)
+			userdefined_temperature_profile_->Interpolate(grid_.x(), T_);
+
+		// Position of stagnation plane
+		const double x_stagnation_plane = grid_.L() / (1. + (rho_oxidizer_ / rho_fuel_)*boost::math::pow<2>(v_oxidizer_ / v_fuel_));
+
+		// Position of peaks
+		if (x_peak_ == 0.)
+		{
+			if (is_userdefined_initial_temperature_profile_ == true)
+			{
+				int iMax;
+				T_.maxCoeff(&iMax);
+				x_peak_ = grid_.x()(iMax);
+			}
+			else
+			{
+				x_peak_ = x_stagnation_plane;
+			}
+		}
+
+		// Width of mixing region
+		if (width_mixing_ == 0.)
+			width_mixing_ = 2.*std::min(grid_.L() - x_peak_, x_peak_);
+
+		// First guess composition (triangular profiles)
+		if (initial_profile_type_ == INITIAL_PROFILE_TYPE_TRIANGULAR)
+		{
+			if (T_peak_ == 0.)
+				FatalErrorMessage("In order to use the triangular initial profiles, the peak mixture must be defined");
+
+			for (int i = 0; i < grid_.Np(); i++)
+				T_(i) = triangular_profile(T_fuel_, T_oxidizer_, T_peak_, x_peak_, width_mixing_, grid_.x()(i));
+
+			for (int i = 0; i < grid_.Np(); i++)
+				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+					Y_[i](j) = triangular_profile(Y_fuel_(j), Y_oxidizer_(j), Y_peak_(j), x_peak_, width_mixing_, grid_.x()(i));
+		}
+
+		// First guess composition (linear profiles)
+		if (initial_profile_type_ == INITIAL_PROFILE_TYPE_LINEAR)
+		{
+			if (is_userdefined_initial_temperature_profile_ == false)
+				FatalErrorMessage("In order to use the linear initial profiles, a user-defined initial temperature profile must be provided");
+
+			for (int i = 0; i < grid_.Np(); i++)
+				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+					Y_[i](j) = linear_profile(Y_fuel_(j), Y_oxidizer_(j), x_peak_, width_mixing_, grid_.x()(i));
+		}
+
+		// First guess composition (plateau profiles)
+		if (initial_profile_type_ == INITIAL_PROFILE_TYPE_PLATEAU)
+		{
+			if (T_peak_ == 0.)
+				FatalErrorMessage("In order to use the triangular initial profiles, the peak mixture must be defined");
+
+			for (int i = 0; i < grid_.Np(); i++)
+				T_(i) = plateau_profile(T_fuel_, T_oxidizer_, T_peak_, x_peak_, width_mixing_, grid_.L(), grid_.x()(i));
+
+			for (int i = 0; i < grid_.Np(); i++)
+				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+					Y_[i](j) = plateau_profile(Y_fuel_(j), Y_oxidizer_(j), Y_peak_(j), x_peak_, width_mixing_, grid_.L(), grid_.x()(i));
+		}
+
+		// Momentum (linear profile)
+		for (int i = 0; i < grid_.Np(); i++)
+			U_(i) = U_fuel_ + (U_oxidizer_ - U_fuel_)*grid_.x()(i) / grid_.L();
+
+		// Radial gradients G
+		const double dU_over_dx = (U_oxidizer_ - U_fuel_) / grid_.L();
+		G_(0) = rho_fuel_*radial_gradient_fuel_;
+		for (int i = 1; i < grid_.Ni(); i++)
+			G_(i) = dU_over_dx;
+		G_(grid_.Ni()) = rho_oxidizer_*radial_gradient_oxidizer_;
+
+		// Eigen value H (the starting guess can be chosen by the user)
+		H_.setConstant(H_starting_guess_);
+
+		// Calculates properties and diffusion fluxes
+		Properties();
+		DiffusionFluxes();
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::SetFuelSide(const double Tfuel, const double P_Pa, const OpenSMOKE::OpenSMOKEVectorDouble& omegaFuel, const double vFuel)
+	{
+		Y_fuel_.resize(thermodynamicsMap_.NumberOfSpecies());
+		for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+			Y_fuel_(j) = omegaFuel[j+1];
+
+		P_ = P_Pa;
+
+		T_fuel_ = Tfuel;
+		v_fuel_ = vFuel;
+
+		// Momentum and boundary conditions
+		{
+			// Molecular weight
+			double mw;
+			aux_Y.CopyFrom(Y_fuel_.data());
+			thermodynamicsMap_.MoleFractions_From_MassFractions(aux_X.GetHandle(), mw, aux_Y.GetHandle());
+
+			if (is_virtual_chemistry_ == true)
+			{
+				mw = virtual_chemistry_->MWMix(aux_Y.GetHandle());
+				virtual_chemistry_->MoleFractions(mw, aux_Y.GetHandle(), aux_X.GetHandle());
+			}
+
+			// Density
+			rho_fuel_ = P_*mw / PhysicalConstants::R_J_kmol / T_fuel_;
+
+			// Momentum variables
+			U_fuel_ = rho_fuel_*v_fuel_ / (n_geometry_ - 1.);
+
+			// Boundary conditions for species mass fractions
+			boundary_fuel_mass_fractions_.resize(thermodynamicsMap_.NumberOfSpecies());
+			for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+				boundary_fuel_mass_fractions_(j) = rho_fuel_*v_fuel_*Y_fuel_(j);
+		}
+	}
+	
+	void OpenSMOKE_CounterFlowFlame1D::SetOxidizerSide(const double Toxidizer, const double P_Pa, const OpenSMOKE::OpenSMOKEVectorDouble& omegaOxidizer, const double vOxidizer)
+	{
+		Y_oxidizer_.resize(thermodynamicsMap_.NumberOfSpecies());
+		for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+			Y_oxidizer_(j) = omegaOxidizer[j + 1];
+
+		P_ = P_Pa;
+
+		T_oxidizer_ = Toxidizer;
+		v_oxidizer_ = vOxidizer;
+
+		// Momentum and boundary conditions
+		{
+			// Molecular weight
+			double mw;
+			aux_Y.CopyFrom(Y_oxidizer_.data());
+			thermodynamicsMap_.MoleFractions_From_MassFractions(aux_X.GetHandle(), mw, aux_Y.GetHandle());
+
+			if (is_virtual_chemistry_ == true)
+			{
+				mw = virtual_chemistry_->MWMix(aux_Y.GetHandle());
+				virtual_chemistry_->MoleFractions(mw, aux_Y.GetHandle(), aux_X.GetHandle());
+			}
+
+			// Density
+			rho_oxidizer_ = P_*mw / PhysicalConstants::R_J_kmol / T_oxidizer_;
+
+			// Momentum variables
+			U_oxidizer_ = -rho_oxidizer_*v_oxidizer_ / (n_geometry_ - 1.);
+
+			// Boundary conditions for species mass fractions
+			boundary_oxidizer_mass_fractions_.resize(thermodynamicsMap_.NumberOfSpecies());
+			for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+				boundary_oxidizer_mass_fractions_(j) = -rho_oxidizer_*v_oxidizer_*Y_oxidizer_(j);
+		}
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::SetPeakMixture(const double Tpeak, const OpenSMOKE::OpenSMOKEVectorDouble& omegaPeak)
+	{
+		Y_peak_.resize(thermodynamicsMap_.NumberOfSpecies());
+		for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+			Y_peak_(j) = omegaPeak[j + 1];
+
+		T_peak_ = Tpeak;
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::SetPeakPosition(const double x_peak)
+	{
+		if (x_peak <= 0. || x_peak >= grid_.L())
+			FatalErrorMessage("The peak position is outside the grid boundaries");
+
+		x_peak_ = x_peak;
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::SetMixingZoneWidth(const double width_mixing)
+	{
+		if (width_mixing <= 0. || width_mixing >= grid_.L())
+			FatalErrorMessage("The width of the mixing zone is larger tha the grid");
+
+		width_mixing_ = width_mixing;
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::SetEigenValueStartingGuess(const double H)
+	{
+		if (H >= 0.)
+			FatalErrorMessage("The provided starting guess eigenvalue H must be strictly negative");
+
+		H_starting_guess_ = H;
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::SetRadialGradientFuelSide(const double G)
+	{
+		radial_gradient_fuel_ = G;
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::SetRadialGradientOxidizerSide(const double G)
+	{
+		radial_gradient_oxidizer_ = G;
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::SetPlanarSymmetry(const bool flag)
+	{
+		if (flag == true)	n_geometry_ = 2.;	// planar
+		else                n_geometry_ = 3.;	// cylyndrical
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::GasReactionRateMultiplier(const double value)
+	{
+		if (value < 0.)
+			FatalErrorMessage("The provided gas reaction rate multiplier coefficient must be positive or equal to 0");
+		gas_reaction_rate_multiplier_ = value;
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::SetLewisNumbers(const std::vector<double> lewis_numbers)
 	{
 		if (lewis_numbers.size() != thermodynamicsMap_.NumberOfSpecies())
 			FatalErrorMessage("The provided Lewis numbers are not correct");
@@ -193,209 +443,70 @@ namespace OpenSMOKE
 		lewis_numbers_ = lewis_numbers;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetupForFlameSpeed(const Eigen::VectorXd& w)
+	void OpenSMOKE_CounterFlowFlame1D::SetInitialProfileType(const std::string type)
 	{
-		// First guess composition
-		for (int i = 0; i < grid_.Np(); i++)
-			Y_[i] = Y_inlet_ + (Y_[grid_.Np() - 1] - Y_inlet_)*w(i);
-
-		// First guess temperature
-		for (int i = 0; i < grid_.Np(); i++)
-			T_(i) = T_inlet_ + (T_outlet_ - T_inlet_)*w(i);
-
-		// First guess mass flow rate (i.e. velocity)
-		{
-			// Molecular weight
-			aux_Y.CopyFrom(Y_[0].data());
-			thermodynamicsMap_.MoleFractions_From_MassFractions(aux_X.GetHandle(), mw_(0), aux_Y.GetHandle());
-
-			if (is_virtual_chemistry_ == true)
-			{
-				mw_(0) = virtual_chemistry_->MWMix(aux_Y.GetHandle());
-				virtual_chemistry_->MoleFractions(mw_(0), aux_Y.GetHandle(), aux_X.GetHandle());
-			}
-
-			// Density
-			const double rho = P_*mw_(0) / PhysicalConstants::R_J_kmol / T_inlet_;
-
-			// Specific mass flow rate [kg/m2/s]
-			m_inlet_ = rho*v_inlet_;
-			m_.setConstant(m_inlet_);
-
-			// Fixed specific mass flow rate [kg/m2/s]
-			if (is_fixed_specific_mass_flow_rate_profile_ == true)
-			{
-				fixed_specific_mass_flow_rate_profile_->Interpolate(grid_.x(), m_);
-				m_inlet_ = m_(0);
-				v_inlet_ = m_inlet_ / rho;
-			}
-		}
-
-		Properties();
-		DiffusionFluxes();
-
-		fixed_T_ = T_(grid_.fixed_point());
-	}
-
-	void OpenSMOKE_PremixedLaminarFlame1D::SetupForBurnerStabilized(const Eigen::VectorXd& w)
-	{
-		if (is_fixed_temperature_profile_ == false)
-		{
-			SetupForFlameSpeed(w);
-		}
+		if (type == "linear")
+			initial_profile_type_ = INITIAL_PROFILE_TYPE_LINEAR;
+		else if (type == "triangular")
+			initial_profile_type_ = INITIAL_PROFILE_TYPE_TRIANGULAR;
+		else if (type == "plateau")
+			initial_profile_type_ = INITIAL_PROFILE_TYPE_PLATEAU;
 		else
-		{
-			fixed_temperature_profile_->Interpolate(grid_.x(), T_);
-
-			// First guess composition
-			for (int i = 0; i < grid_.Np(); i++)
-				Y_[i] = Y_inlet_ + (Y_[grid_.Np() - 1] - Y_inlet_)*w(i);
-
-			// Mass flow rate (i.e. velocity)
-			{
-				// Molecular weight
-				aux_Y.CopyFrom(Y_[0].data());
-				thermodynamicsMap_.MoleFractions_From_MassFractions(aux_X.GetHandle(), mw_(0), aux_Y.GetHandle());
-
-				if (is_virtual_chemistry_ == true)
-				{
-					mw_(0) = virtual_chemistry_->MWMix(aux_Y.GetHandle());
-					virtual_chemistry_->MoleFractions(mw_(0), aux_Y.GetHandle(), aux_X.GetHandle());
-				}
-
-				// Density
-				const double rho = P_*mw_(0) / PhysicalConstants::R_J_kmol / T_inlet_;
-
-				// Specific mass flow rate [kg/m2/s]
-				m_inlet_ = rho*v_inlet_;
-				m_.setConstant(m_inlet_);
-
-				// Fixed specific mass flow rate [kg/m2/s]
-				if (is_fixed_specific_mass_flow_rate_profile_ == true)
-				{
-					fixed_specific_mass_flow_rate_profile_->Interpolate(grid_.x(), m_);
-					m_inlet_ = m_(0);
-					v_inlet_ = m_inlet_ / rho;
-				}
-			}
-
-			Properties();
-			DiffusionFluxes();
-
-			fixed_T_ = T_(grid_.fixed_point());
-		}
+			FatalErrorMessage("Wrong initial profile type. Allowed types are: triangular | linear | plateau");
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::ChangeInletConditions(const double Tinlet, const double P_Pa, const OpenSMOKE::OpenSMOKEVectorDouble& omegaInlet)
-	{
-		SetInlet(Tinlet, P_Pa, omegaInlet);
-		Y_[0] = Y_inlet_;
-		T_(0) = T_inlet_;
-
-		// Adjust mass flow rate (i.e. velocity)
-		{
-			// Molecular weight
-			aux_Y.CopyFrom(Y_[0].data());
-			thermodynamicsMap_.MoleFractions_From_MassFractions(aux_X.GetHandle(), mw_(0), aux_Y.GetHandle());
-
-			if (is_virtual_chemistry_ == true)
-			{
-				mw_(0) = virtual_chemistry_->MWMix(aux_Y.GetHandle());
-				virtual_chemistry_->MoleFractions(mw_(0), aux_Y.GetHandle(), aux_X.GetHandle());
-			}
-
-			// Density
-			const double rho = P_*mw_(0) / PhysicalConstants::R_J_kmol / T_inlet_;
-
-			// Specific mass flow rate [kg/m2/s]
-			m_inlet_ = rho/rho_(0)*m_(0);
-			m_.setConstant(m_inlet_);
-
-			// Fixed specific mass flow rate [kg/m2/s]
-			if (is_fixed_specific_mass_flow_rate_profile_ == true)
-			{
-				fixed_specific_mass_flow_rate_profile_->Interpolate(grid_.x(), m_);
-				m_inlet_ = m_(0);
-				v_inlet_ = m_inlet_ / rho;
-			}
-		}
-
-		Properties();
-		DiffusionFluxes();
-
-		fixed_T_ = T_(grid_.fixed_point());
-	}
-
-	void OpenSMOKE_PremixedLaminarFlame1D::SetInlet(const double Tinlet, const double P_Pa, const OpenSMOKE::OpenSMOKEVectorDouble& omegaInlet)
-	{
-		Y_inlet_.resize(thermodynamicsMap_.NumberOfSpecies());
-		for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
-			Y_inlet_(j) = omegaInlet[j+1];
-
-		P_ = P_Pa;
-
-		T_inlet_ = Tinlet;
-	}
-	
-	void OpenSMOKE_PremixedLaminarFlame1D::SetOutlet(const double Toutlet, const OpenSMOKE::OpenSMOKEVectorDouble& omegaOutlet)
-	{
-		for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
-			Y_[grid_.Np()-1](j) = omegaOutlet[j + 1];
-
-		T_outlet_ = Toutlet;
-	}
-
-	void OpenSMOKE_PremixedLaminarFlame1D::SetInletVelocity(const double inlet_velocity)
-	{
-		v_inlet_ = inlet_velocity;
-	}
-
-	void OpenSMOKE_PremixedLaminarFlame1D::SetUseNlsSolver(const bool use_nls_solver)
+	void OpenSMOKE_CounterFlowFlame1D::SetUseNlsSolver(const bool use_nls_solver)
 	{
 		use_nls_solver_ = use_nls_solver;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetUseDaeSolver(const bool use_dae_solver)
+	void OpenSMOKE_CounterFlowFlame1D::SetUseDaeSolver(const bool use_dae_solver)
 	{
 		use_dae_solver_ = use_dae_solver;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetOutputFolder(const boost::filesystem::path output_folder)
+	void OpenSMOKE_CounterFlowFlame1D::SetOutputFolder(const boost::filesystem::path output_folder)
 	{
 		output_folder_ = output_folder;
 		if (!boost::filesystem::exists(output_folder_))
 			OpenSMOKE::CreateDirectory(output_folder_);
 	}
 
-	int OpenSMOKE_PremixedLaminarFlame1D::BlockDimensions() const
+	int OpenSMOKE_CounterFlowFlame1D::BlockDimensions() const
 	{
 		if (type_ == SIMULATION_TYPE_YTM)
-			return thermodynamicsMap_.NumberOfSpecies() + 2;
+			return thermodynamicsMap_.NumberOfSpecies() + 4;
+		else if (type_ == SIMULATION_TYPE_YM)
+			return thermodynamicsMap_.NumberOfSpecies() + 3;
 		else if (type_ == SIMULATION_TYPE_YT)
 			return thermodynamicsMap_.NumberOfSpecies() + 1;
 		else if (type_ == SIMULATION_TYPE_Y)
 			return thermodynamicsMap_.NumberOfSpecies();
 		else if (type_ == SIMULATION_TYPE_TM)
-			return 2;
+			return 4;
+		else if (type_ == SIMULATION_TYPE_M)
+			return 3;
 		else if (type_ == SIMULATION_TYPE_HMOM)
 			return hmom_->n_moments();
 		else if (type_ == SIMULATION_TYPE_Y_HMOM)
-			return (thermodynamicsMap_.NumberOfSpecies()+hmom_->n_moments());
+			return thermodynamicsMap_.NumberOfSpecies() + hmom_->n_moments();
 		else if (type_ == SIMULATION_TYPE_YT_HMOM)
-			return (thermodynamicsMap_.NumberOfSpecies() + 1 + hmom_->n_moments());
+			return thermodynamicsMap_.NumberOfSpecies() + 1 + hmom_->n_moments();
+		else if (type_ == SIMULATION_TYPE_CSI)
+			return 1;
 		else
 		{
-			ErrorMessage("int OpenSMOKE_PremixedLaminarFlame1D::BlockDimensions() const", "Type not provided");
+			ErrorMessage("int OpenSMOKE_CounterFlowFlame1D::BlockDimensions() const", "Type not provided");
 			return 0;
 		}
 	}
 
-	int OpenSMOKE_PremixedLaminarFlame1D::NumberOfEquations() const
+	int OpenSMOKE_CounterFlowFlame1D::NumberOfEquations() const
 	{
 		return BlockDimensions()*grid_.Np();
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::MemoryAllocation()
+	void OpenSMOKE_CounterFlowFlame1D::MemoryAllocation()
 	{
 		// Must be allocated only the first time
 		if (T_.size() == 0)
@@ -409,13 +520,18 @@ namespace OpenSMOKE
 
 		T_.resize(grid_.Np());
 		U_.resize(grid_.Np());
-		m_.resize(grid_.Np());
+		G_.resize(grid_.Np());
+		H_.resize(grid_.Np());
+
+		M_.resize(grid_.Np());
+		G_over_rho_.resize(grid_.Np());
 
 		rho_.resize(grid_.Np());
 		rho_.resize(grid_.Np());
 		mw_.resize(grid_.Np());
 		cp_.resize(grid_.Np());
 		lambda_.resize(grid_.Np());
+		mu_.resize(grid_.Np());
 		Q_.resize(grid_.Np());
 
 		cp_species_.resize(grid_.Np());
@@ -446,29 +562,29 @@ namespace OpenSMOKE
 		for (int i = 0; i < grid_.Np(); i++)
 			omega_[i].resize(thermodynamicsMap_.NumberOfSpecies());
 
-		j_star_.resize(grid_.Np() - 1);
-		for (int i = 0; i < grid_.Np() - 1; i++)
+		j_star_.resize(grid_.Np()-1);
+		for (int i = 0; i < grid_.Np()-1; i++)
 			j_star_[i].resize(thermodynamicsMap_.NumberOfSpecies());
 
-		j_fick_star_.resize(grid_.Np() - 1);
-		for (int i = 0; i < grid_.Np() - 1; i++)
+		j_fick_star_.resize(grid_.Np()-1);
+		for (int i = 0; i < grid_.Np()-1; i++)
 			j_fick_star_[i].resize(thermodynamicsMap_.NumberOfSpecies());
 
-		j_soret_star_.resize(grid_.Np() - 1);
-		for (int i = 0; i < grid_.Np() - 1; i++)
+		j_soret_star_.resize(grid_.Np()-1);
+		for (int i = 0; i < grid_.Np()-1; i++)
 			j_soret_star_[i].resize(transportMap_.iThermalDiffusionRatios().size());
 
 		if (is_polimi_soot_ == true)
 		{
 			if (polimi_soot_analyzer_->thermophoretic_effect() == true)
 			{
-				j_thermophoretic_star_.resize(grid_.Np() - 1);
-				for (int i = 0; i < grid_.Np() - 1; i++)
+				j_thermophoretic_star_.resize(grid_.Np()-1);
+				for (int i = 0; i < grid_.Np()-1; i++)
 					j_thermophoretic_star_[i].resize(polimi_soot_analyzer_->bin_indices().size());
 			}
 		}
 
-		jc_star_.resize(grid_.Np() - 1);
+		jc_star_.resize(grid_.Np()-1);
 
 
 		dX_over_dx_.resize(grid_.Np());
@@ -483,24 +599,41 @@ namespace OpenSMOKE
 		dT_over_dx_centered_.resize(grid_.Np());
 		lambda_d2T_over_dx2_.resize(grid_.Np());
 
+		dM_over_dx_.resize(grid_.Np());
+		dU_over_dx_.resize(grid_.Np());
+		mu_d2G_over_rho_over_dx2_.resize(grid_.Np());
+
 		// Time derivatives
 		dY_over_dt_.resize(grid_.Np());
 		for (int i = 0; i < grid_.Np(); i++)
 			dY_over_dt_[i].resize(thermodynamicsMap_.NumberOfSpecies());
 
 		dT_over_dt_.resize(grid_.Np());
-		dm_over_dt_.resize(grid_.Np());
+		dU_over_dt_.resize(grid_.Np());
+		dG_over_dt_.resize(grid_.Np());
+		dH_over_dt_.resize(grid_.Np());
 
-		// Radiative heat transfer
+		// Radiative heat transfer (memory allocation)
 		Q_radiation_.resize(grid_.Np());
 		planck_mean_absorption_gas_.resize(grid_.Np());
 		planck_mean_absorption_soot_.resize(grid_.Np());
+
+		// Radiative heat transfer (initialization)
 		Q_radiation_.setZero();
 		planck_mean_absorption_gas_.setZero();
 		planck_mean_absorption_soot_.setZero();
+
+		// Mixture fraction
+		csi_.resize(grid_.Np());
+		dcsi_over_dt_.resize(grid_.Np());
+		dcsi_over_dx_.resize(grid_.Np());
+		rho_times_alpha_d2csi_over_dx2_.resize(grid_.Np());
+		csi_.setConstant(0.);
+		for (int i = 0; i < grid_.Np(); i++)
+			csi_(i) = 1. - 1. * grid_.x()[i] / grid_.x()[grid_.Ni()];
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::EnableSensitivityAnalysis(OpenSMOKE::SensitivityAnalysis_Options& sensitivity_options)
+	void OpenSMOKE_CounterFlowFlame1D::EnableSensitivityAnalysis(OpenSMOKE::SensitivityAnalysis_Options& sensitivity_options)
 	{
 		sensitivity_analysis_ = true;
 		indices_of_sensitivity_species_.resize(sensitivity_options.list_of_species().size());
@@ -508,7 +641,7 @@ namespace OpenSMOKE
 			indices_of_sensitivity_species_[i] = thermodynamicsMap_.IndexOfSpecies(sensitivity_options.list_of_species()[i]) - 1;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Properties()
+	void OpenSMOKE_CounterFlowFlame1D::Properties()
 	{
 		if (is_virtual_chemistry_ == false)
 		{
@@ -546,6 +679,9 @@ namespace OpenSMOKE
 					transportMap_.SetTemperature(T_(i));
 					transportMap_.SetPressure(P_);
 
+					// Mixture viscosity
+					mu_(i) = transportMap_.DynamicViscosity(aux_X.GetHandle());
+
 					// Mixture thermal conductivity
 					lambda_(i) = transportMap_.ThermalConductivity(aux_X.GetHandle());
 
@@ -556,8 +692,8 @@ namespace OpenSMOKE
 						const double Beta0 = 0.6759;
 						const double Pr0 = 0.7;
 
-						const double mu = mu0 * std::pow(T_(i) / T0, Beta0);
-						lambda_(i) = mu * cp_(i) / Pr0;
+						mu_(i) = mu0 * std::pow(T_(i) / T0, Beta0);
+						lambda_(i) = mu_(i) * cp_(i) / Pr0;
 					}
 
 					// Mixture diffusion coefficients
@@ -617,12 +753,22 @@ namespace OpenSMOKE
 
 				// Kinetics
 				{
+					// Sets the kinetic map
 					kineticsMap_.SetTemperature(T_(i));
 					kineticsMap_.SetPressure(P_);
 
+					// Calculates the reaction and formation rates (molar units)
 					kineticsMap_.ReactionRates(aux_C.GetHandle());
 					kineticsMap_.FormationRates(aux_R.GetHandle());
-					Q_(i) = kineticsMap_.HeatRelease(aux_R.GetHandle()); // [J/s/m3]
+
+					// Corrects the formation rates
+					if (gas_reaction_rate_multiplier_ != 1.)
+						Product(gas_reaction_rate_multiplier_, &aux_R);
+
+					// Reaction heat
+					Q_(i) = kineticsMap_.HeatRelease(aux_R.GetHandle()); // [W/m3]
+
+					// Formation rates in mass units
 					ElementByElementProduct(aux_R.Size(), aux_R.GetHandle(), thermodynamicsMap_.MWs().data(), aux_R.GetHandle()); // [kg/m3/s]
 					aux_R.CopyTo(omega_[i].data());
 				}
@@ -680,7 +826,7 @@ namespace OpenSMOKE
 					aux_X.CopyTo(X_[i].data());
 
 					// Mixture density [kg/m3]
-					rho_(i) = P_ * mw_(i) / PhysicalConstants::R_J_kmol / T_(i) ;
+					rho_(i) = P_ * mw_(i) / PhysicalConstants::R_J_kmol / T_(i);
 
 					// Constant pressure specific heat [J/kg/K]
 					cp_(i) = virtual_chemistry_->CpMix(T_(i), P_, aux_Y.GetHandle());
@@ -690,11 +836,11 @@ namespace OpenSMOKE
 				// Transport properties
 				{
 					// Dynamic viscosity [kg/m/s]
-					const double mu = virtual_chemistry_->DynamicViscosity(T_(i));
-					
+					mu_(i) = virtual_chemistry_->DynamicViscosity(T_(i));
+
 					// Thermal conductivity [W/m/K]
-					lambda_(i) = virtual_chemistry_->ThermalConductivity(mu, cp_(i));
-					
+					lambda_(i) = virtual_chemistry_->ThermalConductivity(mu_(i), cp_(i));
+
 					// Mass diffusion coefficients [m2/s]
 					virtual_chemistry_->MassDiffusionCoefficients(lambda_(i), rho_(i), cp_(i), gamma_fick_[i].data());
 					for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
@@ -726,11 +872,11 @@ namespace OpenSMOKE
 		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::DiffusionFluxes()
+	void OpenSMOKE_CounterFlowFlame1D::DiffusionFluxes()
 	{
-		// Fick diffusion velocity
+		// Fick diffusion velocity (TODO)
 		{
-			grid_.Derivative(DERIVATIVE_1ST_BACKWARD, m_, X_, &dX_over_dx_);
+			grid_.Derivative(DERIVATIVE_1ST_BACKWARD, U_, X_, &dX_over_dx_);
 			for (int i = 0; i < grid_.Ni(); i++)
 			{
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
@@ -741,7 +887,7 @@ namespace OpenSMOKE
 		// Soret diffusion velocity
 		if (soret_effect_ == true)
 		{
-			grid_.Derivative(DERIVATIVE_1ST_BACKWARD, m_, T_, &dT_over_dx_);
+			grid_.Derivative(DERIVATIVE_1ST_BACKWARD, U_, T_, &dT_over_dx_);
 			for (int i = 0; i < grid_.Ni(); i++)
 			{
 				for (unsigned int jj = 0; jj < transportMap_.iThermalDiffusionRatios().size(); jj++)
@@ -754,18 +900,13 @@ namespace OpenSMOKE
 		{
 			if (polimi_soot_analyzer_->thermophoretic_effect() == true)
 			{
-				// Dinamyc viscosity [kg/m/s]
-				Eigen::VectorXd mu(grid_.Np());
-				for (int i = 0; i < grid_.Np(); i++)
-					mu(i) = SutherlandViscosity(T_(i));
-
-				grid_.Derivative(DERIVATIVE_1ST_BACKWARD, m_, T_, &dT_over_dx_);
+				grid_.Derivative(DERIVATIVE_1ST_BACKWARD, U_, T_, &dT_over_dx_);
 				for (int i = 0; i < grid_.Ni(); i++)
 				{
 					for (unsigned int jj = 0; jj < polimi_soot_analyzer_->bin_indices().size(); jj++)
 					{
 						unsigned int index = polimi_soot_analyzer_->bin_indices()[jj];
-						j_thermophoretic_star_[i](jj) = -0.50 * (0.538*mu(i) / T_(i)*Y_[i](index) + 0.538*mu(i + 1) / T_(i + 1)*Y_[i + 1](index)) * dT_over_dx_[i + 1];
+						j_thermophoretic_star_[i](jj) = -0.50 * (0.538*mu_(i) / T_(i)*Y_[i](index) + 0.538*mu_(i + 1) / T_(i + 1)*Y_[i + 1](index)) * dT_over_dx_[i + 1];
 					}
 				}
 			}
@@ -846,6 +987,7 @@ namespace OpenSMOKE
 				{
 					for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					{
+						// The correction is applied only to gaseous species
 						if (!OpenSMOKE::IsValuePresent(j, polimi_soot_analyzer_->bin_indices()))
 							j_star_[i](j) = j_fick_star_[i](j) + 0.50*(Y_[i](j) + Y_[i + 1](j))*jc_star_(i);
 						else if (OpenSMOKE::IsValuePresent(j, polimi_soot_analyzer_->bin_indices()))
@@ -885,43 +1027,79 @@ namespace OpenSMOKE
 		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::ResidenceTime(Eigen::VectorXd& tau)
+	void OpenSMOKE_CounterFlowFlame1D::ResidenceTime(Eigen::VectorXd& tau)
 	{
+		// Reconstruct the velocity field [m/s]
+		Eigen::VectorXd v(grid_.Np());
+		for (int i = 0; i < grid_.Np(); i++)
+			v(i) = (n_geometry_ - 1.)*U_(i) / rho_(i);
+
+		// Search for the stagnation plane
+		unsigned int index_stagnation_plane = 0;
+		for (int i = 0; i < grid_.Np(); i++)
+			if (v(i) <= 0.)
+			{
+				index_stagnation_plane = i;
+				break;
+			}
+
+		// Residence time
 		tau.resize(grid_.Np());
+
+		// Fuel side
 		tau(0) = 0.;
-		for (int i = 1; i < grid_.Np(); i++)
-			tau(i) = tau(i - 1) + (grid_.x()(i) - grid_.x()(i - 1)) / (0.50*(m_(i) / rho_(i) + m_(i - 1) / rho_(i - 1)));
+		for (unsigned int i = 1; i < index_stagnation_plane; i++)
+		{
+			const double vmean = 0.50*(v(i) + v(i - 1));
+			const double deltax = (grid_.x()(i) - grid_.x()(i - 1));
+			tau(i) = tau(i - 1) + deltax/vmean;
+		}
+
+		// Oxidizer side
+		tau(grid_.Np()-1) = 0.;
+		for (unsigned int i = grid_.Np()-2; i >= index_stagnation_plane; i--)
+		{
+			const double vmean = 0.50*(v(i) + v(i+1));
+			const double deltax = (grid_.x()(i+1) - grid_.x()(i));
+			tau(i) = tau(i+1) + deltax / vmean;
+		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Equations(const double t, const double* y, double* dy)
+	void OpenSMOKE_CounterFlowFlame1D::Equations(const double t, const double* y, double* dy)
 	{
 		if (type_ == SIMULATION_TYPE_YTM)
-			Equations_MassFractions_Temperature_MassFlowRate(t, y, dy);
+			Equations_MassFractions_Temperature_Momentum(t, y, dy);
+		if (type_ == SIMULATION_TYPE_YM)
+			Equations_MassFractions_Momentum(t, y, dy);
 		else if (type_ == SIMULATION_TYPE_YT)
 			Equations_MassFractions_Temperature(t, y, dy);
 		else if (type_ == SIMULATION_TYPE_Y)
 			Equations_MassFractions(t, y, dy);
 		else if (type_ == SIMULATION_TYPE_TM)
 			Equations_Temperature_MassFlowRate(t, y, dy);
+		else if (type_ == SIMULATION_TYPE_M)
+			Equations_Momentum(t, y, dy);
 		else if (type_ == SIMULATION_TYPE_HMOM)
 			Equations_HMOM(t, y, dy);
 		else if (type_ == SIMULATION_TYPE_Y_HMOM)
 			Equations_MassFractions_HMOM(t, y, dy);
 		else if (type_ == SIMULATION_TYPE_YT_HMOM)
 			Equations_MassFractions_Temperature_HMOM(t, y, dy);
+		else if (type_ == SIMULATION_TYPE_CSI)
+			Equations_MixtureFraction(t, y, dy);
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SubEquations_MassFractions()
+	void OpenSMOKE_CounterFlowFlame1D::SubEquations_MassFractions()
 	{
 		// Inlet boundary
 		for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
-			dY_over_dt_[0](j) = m_(0)*Y_[0](j) + j_star_[0](j) - m_(0)*Y_inlet_(j);
+			dY_over_dt_[0](j) = ((n_geometry_ - 1.)*U_(0)*Y_[0](j) + j_star_[0](j)) - boundary_fuel_mass_fractions_(j);
 
 		// Internal points
 		for (int i = 1; i < grid_.Ni(); i++)
 		for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 			{
-				dY_over_dt_[i](j) = -m_(i)*dY_over_dx_[i](j)
+				dY_over_dt_[i](j) = -(n_geometry_ - 1.)*U_(i)*dY_over_dx_[i](j)
 					- (j_star_[i](j) - j_star_[i - 1](j)) / grid_.dxc_over_2()(i)
 					+ omega_[i](j);
 				dY_over_dt_[i](j) /= rho_(i);
@@ -929,13 +1107,29 @@ namespace OpenSMOKE
 
 		// Outlet boundary
 		for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
-			dY_over_dt_[grid_.Ni()](j) = Y_[grid_.Ni()](j) - Y_[grid_.Ni() - 1](j);
+			dY_over_dt_[grid_.Ni()](j) = ((n_geometry_ - 1.)*U_(grid_.Ni())*Y_[grid_.Ni()](j) + j_star_[grid_.Ni() - 1](j)) - boundary_oxidizer_mass_fractions_(j);
+
+		// Outlet boundary (in case of deposition wall)
+		if (is_deposition_wall_ == true)
+		{
+			if (is_polimi_soot_ == true)
+			{
+				if (polimi_soot_analyzer_->thermophoretic_effect() == true)
+				{
+					for (unsigned int jj = 0; jj < polimi_soot_analyzer_->bin_indices().size(); jj++)
+					{
+						unsigned int index = polimi_soot_analyzer_->bin_indices()[jj];
+						dY_over_dt_[grid_.Ni()](index) = ((n_geometry_ - 1.)*U_(grid_.Ni())*Y_[grid_.Ni()](index) + j_star_[grid_.Ni() - 1](index)) - j_thermophoretic_star_[grid_.Ni() - 1](jj);
+					}
+				}
+			}
+		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SubEquations_Temperature()
+	void OpenSMOKE_CounterFlowFlame1D::SubEquations_Temperature()
 	{
 		// Inlet boundary
-		dT_over_dt_(0) = T_(0) - T_inlet_;
+		dT_over_dt_(0) = T_(0) - T_fuel_;
 
 		// Internal points
 		for (int i = 1; i < grid_.Ni(); i++)
@@ -945,144 +1139,157 @@ namespace OpenSMOKE
 				sumCp += cp_species_[i](j)* (j_star_[i - 1](j) + j_star_[i](j)) / 2.;
 			sumCp *= dT_over_dx_centered_[i];
 
-			dT_over_dt_(i) = -m_(i)*cp_(i)*dT_over_dx_(i)
+			dT_over_dt_(i) = -(n_geometry_ - 1.)*U_(i)*cp_(i)*dT_over_dx_(i)
 				+ lambda_d2T_over_dx2_(i)
 				- sumCp
 				+ Q_(i);
-			
+
 			if (radiative_heat_transfer_ == true)
 				dT_over_dt_(i) += -Q_radiation_(i);
-			
+
 			dT_over_dt_(i) /= (rho_(i) * cp_(i));
 		}
 
 		// Outlet boundary
-		dT_over_dt_(grid_.Ni()) = T_(grid_.Ni()) - T_(grid_.Ni() - 1);
+		dT_over_dt_(grid_.Ni()) = T_(grid_.Ni()) - T_oxidizer_;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SubEquations_MassFlowRate()
+	void OpenSMOKE_CounterFlowFlame1D::SubEquations_Momentum()
 	{
-		// Inlet boundary
-		dm_over_dt_(0) = m_(1) - m_(0);
+		// Auxiliary fields
+		for (int i = 0; i < grid_.Np(); i++)
+		{
+			G_over_rho_(i) = G_(i) / rho_(i);
+			M_(i) = U_(i)*G_over_rho_(i);
+		}
+			
+		// Derivatives
+		grid_.Derivative(DERIVATIVE_1ST_UPWIND, U_, M_, &dM_over_dx_);
+		grid_.Derivative(DERIVATIVE_1ST_BACKWARD, U_, U_, &dU_over_dx_);
+		grid_.SecondDerivative(mu_, G_over_rho_, &mu_d2G_over_rho_over_dx2_);
+
+		// Fuel boundary
+		dU_over_dt_(0) = U_(0) - U_fuel_;
+		dG_over_dt_(0) = rho_fuel_*radial_gradient_fuel_ - G_(0);
+		dH_over_dt_(0) = H_(1) - H_(0);
 
 		// Internal points
 		for (int i = 1; i < grid_.Ni(); i++)
 		{
-			// If turned on, inconsistent algebraic equations are found
-			bool include_derivative_of_density = false;
-			if (include_derivative_of_density == true)
-			{
-				double drho_over_dt = -rho_(i) / T_(i)*dT_over_dt_(i);
-				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
-					drho_over_dt -= rho_(i)*mw_(i) / thermodynamicsMap_.MW(j) * dY_over_dt_[i](j);
-
-				if (i < static_cast<int>(grid_.fixed_point()))
-					dm_over_dt_(i) = (m_(i + 1) - m_(i)) / (grid_.x()(i + 1) - grid_.x()(i)) + drho_over_dt;
-				else
-					dm_over_dt_(i) = (m_(i) - m_(i - 1)) / (grid_.x()(i) - grid_.x()(i - 1)) + drho_over_dt;
-			}
-			else
-			{
-				if (i < static_cast<int>(grid_.fixed_point()))
-					dm_over_dt_(i) = m_(i) - m_(i + 1);
-				else
-					dm_over_dt_(i) = m_(i - 1) - m_(i);
-			}
-
-			if (i == grid_.fixed_point())
-				dm_over_dt_(grid_.fixed_point()) = T_(grid_.fixed_point()) - fixed_T_;
+			dU_over_dt_(i) =	0.50*(G_(i-1)+G_(i)) - dU_over_dx_(i);
+			dG_over_dt_(i) =	mu_d2G_over_rho_over_dx2_(i) + 
+								n_geometry_*G_(i)*G_over_rho_(i) + H_(i) - (n_geometry_-1.)*dM_over_dx_(i);
+			dH_over_dt_(i) =	H_(i+1) - H_(i);
 		}
 
-		// Outlet boundary
-		dm_over_dt_(grid_.Ni()) = m_(grid_.Ni()) - m_(grid_.Ni() - 1);
+		// Oxidizer boundary
+		dU_over_dt_(grid_.Ni()) = 0.50*(G_(grid_.Ni() - 1) + G_(grid_.Ni())) - dU_over_dx_(grid_.Ni());
+		dG_over_dt_(grid_.Ni()) = G_(grid_.Ni()) - rho_oxidizer_*radial_gradient_oxidizer_;
+		dH_over_dt_(grid_.Ni()) = U_oxidizer_ - U_(grid_.Ni());
+
+		// Soot deposition on right wall (if any)
+		SootDepositionOnTheWall();
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SubEquations_HMOM()
+	void OpenSMOKE_CounterFlowFlame1D::SubEquations_HMOM()
 	{
 		const int jN2 = thermodynamicsMap_.IndexOfSpecies("N2") - 1;
-		const int jOH = thermodynamicsMap_.IndexOfSpecies("OH")-1;
+		const int jOH = thermodynamicsMap_.IndexOfSpecies("OH") - 1;
 		const int jH = thermodynamicsMap_.IndexOfSpecies("H") - 1;
 		const int jH2O = thermodynamicsMap_.IndexOfSpecies("H2O") - 1;
 		const int jH2 = thermodynamicsMap_.IndexOfSpecies("H2") - 1;
 		const int jC2H2 = thermodynamicsMap_.IndexOfSpecies("C2H2") - 1;
 		const int jO2 = thermodynamicsMap_.IndexOfSpecies("O2") - 1;
+		
 		std::vector<int> jPAH(hmom_->pah_species().size());
-		for (unsigned int i = 0; i<hmom_->pah_species().size(); i++)
+		for (unsigned int i=0;i<hmom_->pah_species().size();i++)
 			jPAH[i] = thermodynamicsMap_.IndexOfSpecies(hmom_->pah_species()[i]) - 1;
-
+		
 		// Inlet boundary
 		for (unsigned int j = 0; j < hmom_->n_moments(); j++)
 			dhmom_M_over_dt_[0](j) = hmom_M_[0](j) - 1e-12;
-
+		
 		// Internal points
-		for (int i = 1; i <= grid_.Ni(); i++)
+		for (int i = 1; i < grid_.Ni(); i++)
 		{
-			const double threshold = 1.e-16;
+			const double gamma = mu_(i)/rho_(i)/hmom_->schmidt_number();	// diffusion coefficient [m2/s]
 
-			if (hmom_M_[i](3) < threshold)
+			const double ctot = P_ / PhysicalConstants::R_J_kmol / T_[i];	// [kmol/m3]
+			const double mass_fraction_OH = Y_[i](jOH);
+			const double mass_fraction_H = Y_[i](jH);
+			const double conc_OH = ctot*X_[i](jOH);
+			const double conc_H = ctot*X_[i](jH);
+			const double conc_H2O = ctot*X_[i](jH2O);
+			const double conc_H2 = ctot*X_[i](jH2);
+			const double conc_C2H2 = ctot*X_[i](jC2H2);
+			const double conc_O2 = ctot*X_[i](jO2);
+			double conc_PAH = 0.;
+			for (unsigned int j = 0; j<hmom_->pah_species().size(); j++)
+				conc_PAH += ctot*X_[i](jPAH[j]);
+
+			hmom_->SetNormalizedMoments(hmom_M_[i](0), hmom_M_[i](1), hmom_M_[i](2), hmom_M_[i](3));
+			hmom_->SetTemperatureAndPressure(T_[i], P_);
+			hmom_->SetMassFractions(mass_fraction_OH, mass_fraction_H);
+			hmom_->SetConcentrations("kmol/m3", conc_OH, conc_H, conc_H2O, conc_H2, conc_C2H2, conc_O2, conc_PAH);
+			hmom_->SetViscosity(SutherlandViscosity(T_[i]));
+			hmom_->CalculateSourceMoments();
+
+			const double v = (n_geometry_ - 1.)*U_(i)/rho_(i);		// gas velocity [m/s]
+			
+			// Equations
+			for (unsigned int j = 0; j < hmom_->n_moments(); j++)
+				dhmom_M_over_dt_[i](j) = -v*dhmom_M_over_dx_[i](j) + gamma*d2hmom_M_over_dx2_[i](j) + hmom_->sources()(j);
+			
+			// Thermophoretic effect
+			if (hmom_->thermophoretic_model() != 0)
 			{
 				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
-					dhmom_M_over_dt_[i](j) = 0.;
+					dhmom_M_over_dt_[i](j) += hmom_thermophoresis_[i](j) / rho_[i];
 			}
-			else
+
+			// Source terms gas phase
+			if (hmom_->PAHConsumption() == true)
 			{
-				const double v = m_(i) / rho_(i);														// gas velocity [m/s]
-				const double gamma = SutherlandViscosity(T_(i)) / rho_(i) / hmom_->schmidt_number();	// diffusion coefficient [m2/s]
-
-				// Concentrations of relevant species [kmol/m3]
-				const double ctot = P_ / PhysicalConstants::R_J_kmol / T_[i];
-				const double conc_OH = ctot*X_[i](jOH);
-				const double conc_H = ctot*X_[i](jH);
-				const double conc_H2O = ctot*X_[i](jH2O);
-				const double conc_H2 = ctot*X_[i](jH2);
-				const double conc_C2H2 = ctot*X_[i](jC2H2);
-				const double conc_O2 = ctot*X_[i](jO2);
-				double conc_PAH = 0.;
-				for (unsigned int j = 0; j<hmom_->pah_species().size(); j++)
-					conc_PAH += ctot*X_[i](jPAH[j]);
-
-				// Mass fractions of rlelevant species
-				const double mass_fraction_OH = Y_[i](jOH);
-				const double mass_fraction_H = Y_[i](jH);
-
-				// Prepares the HMOM
-				hmom_->SetNormalizedMoments(hmom_M_[i](0), hmom_M_[i](1), hmom_M_[i](2), hmom_M_[i](3));
-				hmom_->SetTemperatureAndPressure(T_[i], P_);
-				hmom_->SetMassFractions(mass_fraction_OH, mass_fraction_H);
-				hmom_->SetConcentrations("kmol/m3", conc_OH, conc_H, conc_H2O, conc_H2, conc_C2H2, conc_O2, conc_PAH);
-				hmom_->SetViscosity(SutherlandViscosity(T_[i]));
-
-				// HMOM source terms [mol/m3/s]
-				hmom_->CalculateSourceMoments();
-
-				// Transport equations
-				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
-					dhmom_M_over_dt_[i](j) = -v*dhmom_M_over_dx_[i](j) + hmom_->sources()(j);
-
-				// Source terms gas phase
-				if (hmom_->PAHConsumption() == true)
+				if (conc_PAH > 1.e-64)
 				{
-					if (conc_PAH > 1.e-64)
+					const double R_PAH = hmom_->PAHConsumptionRate() / 1000.;	// [kmol/m3/s]
+					
+					double Omega_PAH = 0.;	// [kg/m3]
+					for (unsigned int j = 0; j < hmom_->pah_species().size(); j++)
 					{
-						const double R_PAH = hmom_->PAHConsumptionRate() / 1000.;	// [kmol/m3/s]
-
-						double Omega_PAH = 0.;	// [kg/m3]
-						for (unsigned int j = 0; j < hmom_->pah_species().size(); j++)
-						{
-							const double fraction = ctot*X_[i](jPAH[j]) / conc_PAH;
-							const double omega = thermodynamicsMap_.MW(jPAH[j]) * R_PAH * fraction;
-							dY_over_dt_[i](jPAH[j]) -= omega / rho_[i];
-							Omega_PAH += omega;
-						}
-
-						dY_over_dt_[i](jN2) += Omega_PAH / rho_[i];
+						const double fraction = ctot*X_[i](jPAH[j]) / conc_PAH;
+						const double omega = thermodynamicsMap_.MW(jPAH[j]) * R_PAH * fraction;
+						dY_over_dt_[i](jPAH[j]) -= omega / rho_[i];
+						Omega_PAH += omega;
 					}
+
+					dY_over_dt_[i](jN2) += Omega_PAH / rho_[i];
 				}
 			}
 		}
+		
+		// Outlet boundary
+		for (unsigned int j = 0; j < hmom_->n_moments(); j++)
+			dhmom_M_over_dt_[grid_.Ni()](j) = hmom_M_[grid_.Ni()](j) - 1e-12;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Recover_Unknowns(const double* y)
+	void OpenSMOKE_CounterFlowFlame1D::SubEquations_MixtureFraction()
+	{
+		// Inlet boundary
+		dcsi_over_dt_(0) = csi_(0) - 1.;
+
+		// Internal points
+		for (int i = 1; i < grid_.Ni(); i++)
+		{
+			dcsi_over_dt_(i) = -(n_geometry_ - 1.)*U_(i)*dcsi_over_dx_(i) + rho_times_alpha_d2csi_over_dx2_(i);
+			dcsi_over_dt_(i) /= rho_(i);
+		}
+
+		// Outlet boundary
+		dcsi_over_dt_(grid_.Ni()) = csi_(grid_.Ni()) - 0.;
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::Recover_Unknowns(const double* y)
 	{
 		if (type_ == SIMULATION_TYPE_YTM)
 		{
@@ -1096,8 +1303,25 @@ namespace OpenSMOKE
 				// Temperature
 				T_(i) = y[count++];
 
-				// Mass flow rate
-				m_(i) = y[count++];
+				// Momentum
+				U_(i) = y[count++];
+				G_(i) = y[count++];
+				H_(i) = y[count++];
+			}
+		}
+		else if (type_ == SIMULATION_TYPE_YM)
+		{
+			unsigned count = 0;
+			for (int i = 0; i < grid_.Np(); i++)
+			{
+				// Species
+				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+					Y_[i](j) = y[count++];
+
+				// Momentum
+				U_(i) = y[count++];
+				G_(i) = y[count++];
+				H_(i) = y[count++];
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_YT)
@@ -1121,8 +1345,10 @@ namespace OpenSMOKE
 				// Temperature
 				T_(i) = y[count++];
 
-				// Mass flow rate
-				m_(i) = y[count++];
+				// Momentum
+				U_(i) = y[count++];
+				G_(i) = y[count++];
+				H_(i) = y[count++];
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_Y)
@@ -1132,6 +1358,16 @@ namespace OpenSMOKE
 			{
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					Y_[i](j) = y[count++];
+			}
+		}
+		else if (type_ == SIMULATION_TYPE_M)
+		{
+			unsigned count = 0;
+			for (int i = 0; i < grid_.Np(); i++)
+			{
+				U_(i) = y[count++];
+				G_(i) = y[count++];
+				H_(i) = y[count++];
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_HMOM)
@@ -1150,7 +1386,6 @@ namespace OpenSMOKE
 			{
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					Y_[i](j) = y[count++];
-
 				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
 					hmom_M_[i](j) = y[count++];
 			}
@@ -1167,9 +1402,14 @@ namespace OpenSMOKE
 					hmom_M_[i](j) = y[count++];
 			}
 		}
+		else if (type_ == SIMULATION_TYPE_CSI)
+		{
+			for (int i = 0; i < grid_.Np(); i++)
+				csi_(i) = y[i];
+		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Recover_Residuals(double* dy)
+	void OpenSMOKE_CounterFlowFlame1D::Recover_Residuals(double* dy)
 	{
 		if (type_ == SIMULATION_TYPE_YTM)
 		{
@@ -1180,7 +1420,22 @@ namespace OpenSMOKE
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					dy[count++] = dY_over_dt_[i](j);
 				dy[count++] = dT_over_dt_(i);
-				dy[count++] = dm_over_dt_(i);
+				dy[count++] = dU_over_dt_(i);
+				dy[count++] = dG_over_dt_(i);
+				dy[count++] = dH_over_dt_(i);
+			}
+		}
+		else if (type_ == SIMULATION_TYPE_YM)
+		{
+			unsigned count = 0;
+			for (int i = 0; i < grid_.Np(); i++)
+			{
+				// Species
+				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+					dy[count++] = dY_over_dt_[i](j);
+				dy[count++] = dU_over_dt_(i);
+				dy[count++] = dG_over_dt_(i);
+				dy[count++] = dH_over_dt_(i);
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_YT)
@@ -1200,7 +1455,9 @@ namespace OpenSMOKE
 			for (int i = 0; i < grid_.Np(); i++)
 			{
 				dy[count++] = dT_over_dt_(i);
-				dy[count++] = dm_over_dt_(i);
+				dy[count++] = dU_over_dt_(i);
+				dy[count++] = dG_over_dt_(i);
+				dy[count++] = dH_over_dt_(i);
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_Y)
@@ -1211,6 +1468,16 @@ namespace OpenSMOKE
 				// Species
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					dy[count++] = dY_over_dt_[i](j);
+			}
+		}
+		else if (type_ == SIMULATION_TYPE_M)
+		{
+			unsigned count = 0;
+			for (int i = 0; i < grid_.Np(); i++)
+			{
+				dy[count++] = dU_over_dt_(i);
+				dy[count++] = dG_over_dt_(i);
+				dy[count++] = dH_over_dt_(i);
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_HMOM)
@@ -1227,11 +1494,8 @@ namespace OpenSMOKE
 			unsigned count = 0;
 			for (int i = 0; i < grid_.Np(); i++)
 			{
-				// Species
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					dy[count++] = dY_over_dt_[i](j);
-
-				// Moments
 				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
 					dy[count++] = dhmom_M_over_dt_[i](j);
 			}
@@ -1241,21 +1505,21 @@ namespace OpenSMOKE
 			unsigned count = 0;
 			for (int i = 0; i < grid_.Np(); i++)
 			{
-				// Species
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					dy[count++] = dY_over_dt_[i](j);
-
-				// Temperature
 				dy[count++] = dT_over_dt_(i);
-
-				// Moments
 				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
 					dy[count++] = dhmom_M_over_dt_[i](j);
 			}
 		}
+		else if (type_ == SIMULATION_TYPE_CSI)
+		{
+			for (int i = 0; i < grid_.Np(); i++)
+				dy[i] = dcsi_over_dt_(i);
+		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Equations_MassFractions_Temperature_MassFlowRate(const double t, const double* y, double* dy)
+	void OpenSMOKE_CounterFlowFlame1D::Equations_MassFractions_Temperature_Momentum(const double t, const double* y, double* dy)
 	{
 		// Recover unknowns
 		Recover_Unknowns(y);
@@ -1269,24 +1533,58 @@ namespace OpenSMOKE
 		// Derivatives
 		{
 			// Species
-			grid_.Derivative(gas_mass_fractions_1st_derivative_type_, m_, Y_, &dY_over_dx_);
+			grid_.Derivative(derivative_type_species_, U_, Y_, &dY_over_dx_);
 
 			// Temperature
-			grid_.Derivative(gas_temperature_1st_derivative_type_, m_, T_, &dT_over_dx_);
-			grid_.Derivative(DERIVATIVE_1ST_CENTERED, m_, T_, &dT_over_dx_centered_);
+			grid_.Derivative(derivative_type_temperature_, U_, T_, &dT_over_dx_);
+			grid_.Derivative(DERIVATIVE_1ST_CENTERED, U_, T_, &dT_over_dx_centered_);
 			grid_.SecondDerivative(lambda_, T_, &lambda_d2T_over_dx2_);
 		}
 		
 		// Equations
 		SubEquations_MassFractions();
 		SubEquations_Temperature();
-		SubEquations_MassFlowRate();
+		SubEquations_Momentum();
 
 		// Recover residuals
 		Recover_Residuals(dy);
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Equations_MassFractions_Temperature(const double t, const double* y, double* dy)
+	void OpenSMOKE_CounterFlowFlame1D::Equations_MassFractions_Momentum(const double t, const double* y, double* dy)
+	{
+		// Recover unknowns
+		Recover_Unknowns(y);
+
+		// Properties
+		Properties();
+
+		// Fluxes
+		DiffusionFluxes();
+
+		// Derivatives of species
+		grid_.Derivative(derivative_type_species_, U_, Y_, &dY_over_dx_);
+
+		// Equations
+		SubEquations_MassFractions();
+		SubEquations_Momentum();
+
+		// Recover residuals
+		Recover_Residuals(dy);
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::Equations_Momentum(const double t, const double* y, double* dy)
+	{
+		// Recover unknowns
+		Recover_Unknowns(y);
+
+		// Equations
+		SubEquations_Momentum();
+
+		// Recover residuals
+		Recover_Residuals(dy);
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::Equations_MassFractions_Temperature(const double t, const double* y, double* dy)
 	{
 		// Recover unknowns
 		Recover_Unknowns(y);
@@ -1300,11 +1598,11 @@ namespace OpenSMOKE
 		// Derivatives
 		{
 			// Species
-			grid_.Derivative(gas_mass_fractions_1st_derivative_type_, m_, Y_, &dY_over_dx_);
+			grid_.Derivative(derivative_type_species_, U_, Y_, &dY_over_dx_);
 
 			// Temperature
-			grid_.Derivative(gas_temperature_1st_derivative_type_, m_, T_, &dT_over_dx_);
-			grid_.Derivative(DERIVATIVE_1ST_CENTERED, m_, T_, &dT_over_dx_centered_);
+			grid_.Derivative(derivative_type_temperature_, U_, T_, &dT_over_dx_);
+			grid_.Derivative(DERIVATIVE_1ST_CENTERED, U_, T_, &dT_over_dx_centered_);
 			grid_.SecondDerivative(lambda_, T_, &lambda_d2T_over_dx2_);
 		}
 
@@ -1316,7 +1614,7 @@ namespace OpenSMOKE
 		Recover_Residuals(dy);
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Equations_Temperature_MassFlowRate(const double t, const double* y, double* dy)
+	void OpenSMOKE_CounterFlowFlame1D::Equations_Temperature_MassFlowRate(const double t, const double* y, double* dy)
 	{
 		// Recover unknowns
 		Recover_Unknowns(y);
@@ -1329,20 +1627,20 @@ namespace OpenSMOKE
 
 		// Derivatives
 		{
-			grid_.Derivative(gas_temperature_1st_derivative_type_, m_, T_, &dT_over_dx_);
-			grid_.Derivative(DERIVATIVE_1ST_CENTERED, m_, T_, &dT_over_dx_centered_);
+			grid_.Derivative(derivative_type_temperature_, U_, T_, &dT_over_dx_);
+			grid_.Derivative(DERIVATIVE_1ST_CENTERED, U_, T_, &dT_over_dx_centered_);
 			grid_.SecondDerivative(lambda_, T_, &lambda_d2T_over_dx2_);
 		}
 
 		// Equations
 		SubEquations_Temperature();
-		SubEquations_MassFlowRate();
+		SubEquations_Momentum();
 
 		// Recover residuals
 		Recover_Residuals(dy);
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Equations_MassFractions(const double t, const double* y, double* dy)
+	void OpenSMOKE_CounterFlowFlame1D::Equations_MassFractions(const double t, const double* y, double* dy)
 	{
 		// Recover unknowns
 		Recover_Unknowns(y);
@@ -1354,7 +1652,7 @@ namespace OpenSMOKE
 		DiffusionFluxes();
 
 		// Derivatives of Species
-		grid_.Derivative(gas_mass_fractions_1st_derivative_type_, m_, Y_, &dY_over_dx_);
+		grid_.Derivative(derivative_type_species_, U_, Y_, &dY_over_dx_);
 
 		// Equations
 		SubEquations_MassFractions();
@@ -1363,7 +1661,7 @@ namespace OpenSMOKE
 		Recover_Residuals(dy);
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Equations_MassFractions_Temperature_HMOM(const double t, const double* y, double* dy)
+	void OpenSMOKE_CounterFlowFlame1D::Equations_MassFractions_Temperature_HMOM(const double t, const double* y, double* dy)
 	{
 		// Recover unknowns
 		Recover_Unknowns(y);
@@ -1374,12 +1672,27 @@ namespace OpenSMOKE
 		// Fluxes
 		DiffusionFluxes();
 
-		// Derivatives of Species
-		grid_.Derivative(gas_mass_fractions_1st_derivative_type_, m_, Y_, &dY_over_dx_);
-		grid_.Derivative(DERIVATIVE_1ST_BACKWARD, m_, hmom_M_, &dhmom_M_over_dx_);
-		grid_.Derivative(gas_temperature_1st_derivative_type_, m_, T_, &dT_over_dx_);
-		grid_.Derivative(DERIVATIVE_1ST_CENTERED, m_, T_, &dT_over_dx_centered_);
+		// Derivatives
+		grid_.Derivative(derivative_type_species_, U_, Y_, &dY_over_dx_);
+		grid_.Derivative(DERIVATIVE_1ST_UPWIND, U_, hmom_M_, &dhmom_M_over_dx_);
+		grid_.SecondDerivative(hmom_M_, &d2hmom_M_over_dx2_);
+		grid_.Derivative(derivative_type_temperature_, U_, T_, &dT_over_dx_);
+		grid_.Derivative(DERIVATIVE_1ST_CENTERED, U_, T_, &dT_over_dx_centered_);
 		grid_.SecondDerivative(lambda_, T_, &lambda_d2T_over_dx2_);
+
+		if (hmom_->thermophoretic_model() != 0)
+		{
+			Eigen::VectorXd d2T_over_dx2(grid_.Np());
+			grid_.SecondDerivative(T_, &d2T_over_dx2);
+			for (unsigned int j = 0; j < hmom_->n_moments(); j++)
+			{
+				for (int i = 0; i < grid_.Np(); i++)
+				{
+					const double mu = SutherlandViscosity(T_(i));
+					hmom_thermophoresis_[i](j) = hmom_M_[i](j)*0.55*mu / T_[i] * d2T_over_dx2[i];
+				}
+			}
+		}
 
 		// Equations
 		SubEquations_MassFractions();
@@ -1390,20 +1703,35 @@ namespace OpenSMOKE
 		Recover_Residuals(dy);
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Equations_MassFractions_HMOM(const double t, const double* y, double* dy)
+	void OpenSMOKE_CounterFlowFlame1D::Equations_MassFractions_HMOM(const double t, const double* y, double* dy)
 	{
 		// Recover unknowns
 		Recover_Unknowns(y);
-
+		
 		// Properties
 		Properties();
 
 		// Fluxes
 		DiffusionFluxes();
+		
+		// Derivatives
+		grid_.Derivative(derivative_type_species_, U_, Y_, &dY_over_dx_);
+		grid_.Derivative(DERIVATIVE_1ST_UPWIND, U_, hmom_M_, &dhmom_M_over_dx_);
+		grid_.SecondDerivative(hmom_M_, &d2hmom_M_over_dx2_);
 
-		// Derivatives of Species
-		grid_.Derivative(gas_mass_fractions_1st_derivative_type_, m_, Y_, &dY_over_dx_);
-		grid_.Derivative(DERIVATIVE_1ST_BACKWARD, m_, hmom_M_, &dhmom_M_over_dx_);
+		if (hmom_->thermophoretic_model() != 0)
+		{
+			Eigen::VectorXd d2T_over_dx2(grid_.Np());
+			grid_.SecondDerivative(T_, &d2T_over_dx2);
+			for (unsigned int j = 0; j < hmom_->n_moments(); j++)
+			{
+				for (int i = 0; i < grid_.Np(); i++)
+				{
+					const double mu = SutherlandViscosity(T_(i));
+					hmom_thermophoresis_[i](j) = hmom_M_[i](j)*0.55*mu / T_[i] * d2T_over_dx2[i];
+				}
+			}
+		}
 
 		// Equations
 		SubEquations_MassFractions();
@@ -1413,7 +1741,7 @@ namespace OpenSMOKE
 		Recover_Residuals(dy);
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Equations_HMOM(const double t, const double* y, double* dy)
+	void OpenSMOKE_CounterFlowFlame1D::Equations_HMOM(const double t, const double* y, double* dy)
 	{
 		// Recover unknowns
 		Recover_Unknowns(y);
@@ -1422,7 +1750,22 @@ namespace OpenSMOKE
 		Properties();
 
 		// Derivatives of Species
-		grid_.Derivative(DERIVATIVE_1ST_BACKWARD, m_, hmom_M_, &dhmom_M_over_dx_);
+		grid_.Derivative(DERIVATIVE_1ST_UPWIND, U_, hmom_M_, &dhmom_M_over_dx_);
+		grid_.SecondDerivative(hmom_M_, &d2hmom_M_over_dx2_);
+
+		if (hmom_->thermophoretic_model() != 0)
+		{
+			Eigen::VectorXd d2T_over_dx2(grid_.Np());
+			grid_.SecondDerivative(T_, &d2T_over_dx2);
+			for (unsigned int j = 0; j < hmom_->n_moments(); j++)
+			{
+				for (int i = 0; i < grid_.Np(); i++)
+				{
+					const double mu = SutherlandViscosity(T_(i));
+					hmom_thermophoresis_[i](j) = hmom_M_[i](j)*0.55*mu / T_[i] * d2T_over_dx2[i];
+				}
+			}
+		}
 
 		// Equations
 		SubEquations_HMOM();
@@ -1431,9 +1774,31 @@ namespace OpenSMOKE
 		Recover_Residuals(dy);
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Print(const double t, const Eigen::VectorXd& y, std::ofstream& fOutput)
+	void OpenSMOKE_CounterFlowFlame1D::Equations_MixtureFraction(const double t, const double* y, double* dy)
 	{
 		// Recover unknowns
+		Recover_Unknowns(y);
+
+		// Properties
+		//Properties();
+
+		// Derivatives
+		Eigen::VectorXd rho_times_alpha(grid_.Np());
+		for (int i = 0; i < grid_.Np(); i++)
+			rho_times_alpha(i) = lambda_(i) / cp_(i);
+
+		grid_.Derivative(DERIVATIVE_1ST_UPWIND, U_, csi_, &dcsi_over_dx_);
+		grid_.SecondDerivative(rho_times_alpha, csi_, &rho_times_alpha_d2csi_over_dx2_);
+
+		// Equations
+		SubEquations_MixtureFraction();
+
+		// Recover residuals
+		Recover_Residuals(dy);
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::Print(const double t, const Eigen::VectorXd& y, std::ofstream& fOutput)
+	{
 		if (type_ == SIMULATION_TYPE_YTM)
 		{
 			unsigned count = 0;
@@ -1457,7 +1822,7 @@ namespace OpenSMOKE
 				}
 
 				fOutput << std::setprecision(9) << std::setw(18) << t;
-				fOutput << std::setprecision(9) << std::setw(18) << grid_.x()(i);
+				fOutput << std::setprecision(9) << std::setw(18) << grid_.x()[i];
 				fOutput << std::setprecision(9) << std::setw(18) << T;
 				fOutput << std::setprecision(9) << std::setw(18) << m;
 
@@ -1481,6 +1846,10 @@ namespace OpenSMOKE
 				fOutput << std::endl;
 			}
 			fOutput << std::endl;
+		}
+		if (type_ == SIMULATION_TYPE_YM)
+		{
+			// TODO
 		}
 		else if (type_ == SIMULATION_TYPE_YT)
 		{
@@ -1507,7 +1876,7 @@ namespace OpenSMOKE
 				fOutput << std::setprecision(9) << std::setw(18) << t;
 				fOutput << std::setprecision(9) << std::setw(18) << grid_.x()[i];
 				fOutput << std::setprecision(9) << std::setw(18) << T;
-				fOutput << std::setprecision(9) << std::setw(18) << m_(i);
+				fOutput << std::setprecision(9) << std::setw(18) << U_(i);
 
 				// Elements
 				{
@@ -1516,7 +1885,7 @@ namespace OpenSMOKE
 						double sum = 0.;
 						for (unsigned int k = 0; k < thermodynamicsMap_.NumberOfSpecies(); k++)
 							sum += thermodynamicsMap_.atomic_composition()(k, j) * xx(k + 1);
-						fOutput << std::setprecision(9) << std::setw(18) << sum * m_(i) / MW;
+						fOutput << std::setprecision(9) << std::setw(18) << sum * U_(i) / MW;
 					}
 				}
 				
@@ -1552,9 +1921,9 @@ namespace OpenSMOKE
 				}
 
 				fOutput << std::setprecision(9) << std::setw(18) << t;
-				fOutput << std::setprecision(9) << std::setw(18) << grid_.x()(i);
+				fOutput << std::setprecision(9) << std::setw(18) << grid_.x()[i];
 				fOutput << std::setprecision(9) << std::setw(18) << T_(i);
-				fOutput << std::setprecision(9) << std::setw(18) << m_(i);
+				fOutput << std::setprecision(9) << std::setw(18) << U_(i);
 
 				// Elements
 				{
@@ -1563,7 +1932,7 @@ namespace OpenSMOKE
 						double sum = 0.;
 						for (unsigned int k = 0; k < thermodynamicsMap_.NumberOfSpecies(); k++)
 							sum += thermodynamicsMap_.atomic_composition()(k, j) * xx(k + 1);
-						fOutput << std::setprecision(9) << std::setw(18) << sum * m_(i) / MW;
+						fOutput << std::setprecision(9) << std::setw(18) << sum * U_(i) / MW;
 					}
 				}
 
@@ -1600,7 +1969,7 @@ namespace OpenSMOKE
 				}
 
 				fOutput << std::setprecision(9) << std::setw(18) << t;
-				fOutput << std::setprecision(9) << std::setw(18) << grid_.x()(i);
+				fOutput << std::setprecision(9) << std::setw(18) << grid_.x()[i];
 				fOutput << std::setprecision(9) << std::setw(18) << T;
 				fOutput << std::setprecision(9) << std::setw(18) << m;
 
@@ -1624,72 +1993,112 @@ namespace OpenSMOKE
 			}
 			fOutput << std::endl;
 		}
-		else if (type_ == SIMULATION_TYPE_HMOM || type_ == SIMULATION_TYPE_Y_HMOM || type_ == SIMULATION_TYPE_YT_HMOM)
+		else if (type_ == SIMULATION_TYPE_M)
 		{
-			unsigned count = 0;
-			for (int i = 0; i < grid_.Np(); i++)
-			{
-				fOutput << std::setprecision(9) << std::setw(18) << t;
-				fOutput << std::setprecision(9) << std::setw(18) << grid_.x()(i);
-
-				// Moments
-				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
-				{
-					fOutput << std::setprecision(9) << std::setw(18) << hmom_M_[i](j);;
-				}
-
-				fOutput << std::endl;
-			}
-			fOutput << std::endl;
+			// TODO
+		}
+		else if (type_ == SIMULATION_TYPE_HMOM)
+		{
+			// TODO
+		}
+		else if (type_ == SIMULATION_TYPE_Y_HMOM)
+		{
+			// TODO
+		}
+		else if (type_ == SIMULATION_TYPE_YT_HMOM)
+		{
+			// TODO
+		}
+		else if (type_ == SIMULATION_TYPE_CSI)
+		{
+			// TODO
 		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Print(const double* y, const double norm_residuals)
+	void OpenSMOKE_CounterFlowFlame1D::Print(const double* y, const double norm_residuals)
 	{
-		const double mass_flow_rate = m_(0);
-		const double flame_speed = mass_flow_rate / rho_(0);
 		const double max_T = T_.maxCoeff();
 
 		std::cout << std::left << std::setw(14) << std::scientific << std::setprecision(3) << norm_residuals;
-		std::cout << std::left << std::setw(14) << std::fixed << std::setprecision(3) << flame_speed*100.;
 		std::cout << std::left << std::setw(14) << std::fixed << std::setprecision(3) << max_T;
 		
 		std::cout << std::endl;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Print(const double t, const double* y)
+	void OpenSMOKE_CounterFlowFlame1D::Print(const double t, const double* y)
 	{
-		if (count_video_ == n_steps_video_)
+		if (is_dynamic_boundaries_ == false)
 		{
-			const double mass_flow_rate = m_(0);
-			const double flame_speed = mass_flow_rate / rho_(0);
-			const double max_T = T_.maxCoeff();
+			if (count_video_ == n_steps_video_)
+			{
+				const double max_T = T_.maxCoeff();
 
-			std::cout << std::left << std::setw(16) << std::scientific << t;
-			std::cout << std::left << std::setw(14) << std::fixed << std::setprecision(3) << flame_speed*100.;
-			std::cout << std::left << std::setw(14) << std::fixed << std::setprecision(3) << max_T;
-			std::cout << std::endl;
+				std::cout << std::left << std::setw(16) << std::scientific << t;
+				std::cout << std::left << std::setw(14) << std::fixed << std::setprecision(3) << max_T;
+				std::cout << std::endl;
 
-			count_video_ = 0;
+				count_video_ = 0;
+			}
 		}
+		else
+		{
+			if (iterations_%300 == 0 )
+			{
+				std::cout << std::left << std::setw(16) << "time[s]";
+				std::cout << std::left << std::setw(12) << "Tmax[K]";
+				std::cout << std::left << std::setw(12) << "a[1/s]";
+				std::cout << std::left << std::setw(12) << "xSt[cm]";
+				std::cout << std::left << std::setw(12) << "beta[-]";
+				std::cout << std::left << std::setw(12) << "Tfuel[K]";
+				std::cout << std::left << std::setw(12) << "Tox[K]";
+				std::cout << std::left << std::setw(12) << "vfuel[cm/s]";;
+				std::cout << std::left << std::setw(12) << "vox[cm/s]";
+				std::cout << std::endl;
+			}
+
+			if (count_video_ == dynamic_boundaries_->n_steps_output() )
+			{
+				const double max_T = T_.maxCoeff();
+
+				std::cout << std::left << std::setw(16) << std::scientific << t;
+				std::cout << std::left << std::setw(12) << std::fixed << std::setprecision(3) << max_T;
+				std::cout << std::left << std::setw(12) << std::fixed << std::setprecision(3) << dynamic_boundaries_->a();
+				std::cout << std::left << std::setw(12) << std::fixed << std::setprecision(3) << dynamic_boundaries_->xst()*100.;
+				std::cout << std::left << std::setw(12) << std::fixed << std::setprecision(3) << dynamic_boundaries_->beta();
+				std::cout << std::left << std::setw(12) << std::fixed << std::setprecision(3) << T_fuel_;
+				std::cout << std::left << std::setw(12) << std::fixed << std::setprecision(3) << T_oxidizer_;
+				std::cout << std::left << std::setw(12) << std::fixed << std::setprecision(3) << v_fuel_ * 100.;
+				std::cout << std::left << std::setw(12) << std::fixed << std::setprecision(3) << v_oxidizer_ * 100.;
+				std::cout << std::endl;
+
+				dynamic_boundaries_->Print(t, max_T);
+
+				count_video_ = 0;
+			}
+
+			UpdateBoundaries(t);
+		}
+
 		count_video_++;
+		iterations_++;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Print(const std::string name_file)
+	void OpenSMOKE_CounterFlowFlame1D::Print(const std::string name_file)
 	{
 		std::ofstream fOutput(name_file.c_str(), std::ios::out);
-		fOutput.setf(std::ios::scientific);
 
-		// Labels
 		{
 			unsigned int count = 1;
-			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "t[s]", count);
+			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "csi[-]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "x[cm]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "T[K]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "v[cm/s]", count);
-			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "m[kg/m2/s]", count);
+			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "U[kg/m2/s]", count);
+			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "G[kg/m3/s]", count);
+			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "H[kg/m3/s2]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "rho[kg/m3]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "k[W/m/K]", count);
+			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "mu[kg/m/s]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "Cp[J/kg/K]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "Q[W/m3]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutput, "Qrad[W/m3]", count);
@@ -1706,11 +2115,21 @@ namespace OpenSMOKE
 			fOutput << std::endl;
 		}
 
-		// Local residence time
-		Eigen::VectorXd tau;
-		ResidenceTime(tau);
+		if (is_virtual_chemistry_ == false)
+		{
+			std::cout << std::endl;
+			std::cout << "----------------------------------------------------------" << std::endl;
+			std::cout << "                       Solving Csi                        " << std::endl;
+			std::cout << "----------------------------------------------------------" << std::endl;
 
-		// Loop over all the points
+			SetType(SIMULATION_TYPE_CSI);
+			const double tEnd = 10.;
+
+			// Solve first the DAE system
+			DaeSMOKE::DaeSolver_Parameters dae_parameters;
+			int flag = SolveDAE(dae_parameters, tEnd);
+		}
+
 		for (int i = 0; i < grid_.Np(); i++)
 		{
 			OpenSMOKE::OpenSMOKEVectorDouble yy(thermodynamicsMap_.NumberOfSpecies());
@@ -1729,15 +2148,18 @@ namespace OpenSMOKE
 			}
 
 			// Calculate thermophoretic velocity [m/s]
-			const double vThermophoretic = -0.55*SutherlandViscosity(T_(i)) / rho_(i)*dT_over_dx_(i) / T_(i);
+			const double vThermophoretic = -0.55*mu_(i) / rho_(i)*dT_over_dx_centered_(i) / T_(i);
 
-			fOutput << std::setprecision(9) << std::setw(20) << tau(i);
-			fOutput << std::setprecision(9) << std::setw(20) << grid_.x()(i)*100.;
+			fOutput << std::setprecision(9) << std::setw(20) << csi_(i);
+			fOutput << std::setprecision(9) << std::setw(20) << grid_.x()[i]*100.;
 			fOutput << std::setprecision(9) << std::setw(20) << T_(i);
-			fOutput << std::setprecision(9) << std::setw(20) << m_(i)/rho_(i)*100.;
-			fOutput << std::setprecision(9) << std::setw(20) << m_(i);
+			fOutput << std::setprecision(9) << std::setw(20) << (n_geometry_-1.)*U_(i)/rho_(i)*100.;
+			fOutput << std::setprecision(9) << std::setw(20) << U_(i);
+			fOutput << std::setprecision(9) << std::setw(20) << G_(i);
+			fOutput << std::setprecision(9) << std::setw(20) << H_(i);
 			fOutput << std::setprecision(9) << std::setw(20) << rho_(i);
 			fOutput << std::setprecision(9) << std::setw(20) << lambda_(i);
+			fOutput << std::setprecision(9) << std::setw(20) << mu_(i);
 			fOutput << std::setprecision(9) << std::setw(20) << cp_(i);
 			fOutput << std::setprecision(9) << std::setw(20) << Q_(i);
 			fOutput << std::setprecision(9) << std::setw(20) << Q_radiation_(i);
@@ -1752,7 +2174,7 @@ namespace OpenSMOKE
 					double sum = 0.;
 					for (unsigned int k = 0; k < thermodynamicsMap_.NumberOfSpecies(); k++)
 						sum += thermodynamicsMap_.atomic_composition()(k, j) * xx(k + 1);
-					fOutput << std::setprecision(9) << std::setw(20) << sum*m_(i)/MW;
+					fOutput << std::setprecision(9) << std::setw(20) << sum*U_(i)/MW;	// TODO
 				}
 			}
 
@@ -1769,17 +2191,14 @@ namespace OpenSMOKE
 		fOutput.close();
 	}
 	
-
-	void OpenSMOKE_PremixedLaminarFlame1D::PrintSoot(const boost::filesystem::path output_folder)
+	void OpenSMOKE_CounterFlowFlame1D::PrintSoot(const boost::filesystem::path output_folder)
 	{
 		// Prepare soot file
 		std::ofstream fOutputSoot( (output_folder / "Solution.soot.out").c_str(), std::ios::out);
 		fOutputSoot.setf(std::ios::scientific);
-
-		// Labels
 		{
 			unsigned int count = 1;
-			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputSoot, "t[s]", count);
+			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputSoot, "csi[-]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputSoot, "x[cm]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputSoot, "T[K]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputSoot, "v[cm/s]", count);
@@ -1804,6 +2223,8 @@ namespace OpenSMOKE
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputSoot, "O/C(S)[-]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputSoot, "O/H(S)[-]", count);
 
+			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputSoot, "depos[kg/m2/s]", count);
+
 			fOutputSoot << std::endl;
 		}
 
@@ -1812,19 +2233,15 @@ namespace OpenSMOKE
 		fOutputSootDistribution.setf(std::ios::scientific);
 		polimi_soot_analyzer_->WriteDistributionLabel(fOutputSootDistribution);
 
-		// Local residence time
-		Eigen::VectorXd tau;
-		ResidenceTime(tau);
-
 		// Loop over all the cells
 		for (int i = 0; i < grid_.Np(); i++)
 		{
 			// Gas-phase properties
-			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << tau(i);
-			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << grid_.x()(i) * 100.;
+			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << csi_(i);
+			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << grid_.x()[i] * 100.;
 			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << T_(i);
-			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << m_(i) / rho_(i)*100.;
-			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << m_(i);
+			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << (n_geometry_ - 1.)*U_(i) / rho_(i)*100.;	
+			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << U_(i);									
 			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << rho_(i);
 
 			// Analysis of soot
@@ -1850,10 +2267,14 @@ namespace OpenSMOKE
 			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << polimi_soot_analyzer_->h_over_c_small();
 			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << polimi_soot_analyzer_->o_over_c_small();
 			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << polimi_soot_analyzer_->o_over_h_small();
+
+			// Deposition of soot
+			fOutputSoot << std::scientific << std::setprecision(9) << std::setw(20) << soot_deposition_;
+			
 			fOutputSoot << std::endl;
 
 			// Distributions
-			polimi_soot_analyzer_->WriteDistribution(fOutputSootDistribution, tau(i), grid_.x()(i), 0., 0., T_(i));
+			polimi_soot_analyzer_->WriteDistribution(fOutputSootDistribution, 0., grid_.x()(i), 0., 0., T_(i));
 			fOutputSootDistribution << std::endl;
 		}
 
@@ -1861,7 +2282,7 @@ namespace OpenSMOKE
 		fOutputSootDistribution.close();
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::PrintHMOM(const boost::filesystem::path output_folder)
+	void OpenSMOKE_CounterFlowFlame1D::PrintHMOM(const boost::filesystem::path output_folder)
 	{
 		// Prepare soot file
 		std::ofstream fOutputHMOM((output_folder / "Solution.hmom.out").c_str(), std::ios::out);
@@ -1871,7 +2292,7 @@ namespace OpenSMOKE
 		{
 			unsigned int count = 1;
 
-			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputHMOM, "t[s]", count);
+			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputHMOM, "csi[-]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputHMOM, "x[cm]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputHMOM, "T[K]", count);
 			OpenSMOKE::PrintTagOnASCIILabel(20, fOutputHMOM, "v[cm/s]", count);
@@ -1991,10 +2412,6 @@ namespace OpenSMOKE
 
 			fOutputHMOM << std::endl;
 		}
-		
-		// Local residence time
-		Eigen::VectorXd tau;
-		ResidenceTime(tau);
 
 		// Indices of relevant species jOH
 		const int jOH = thermodynamicsMap_.IndexOfSpecies("OH") - 1;
@@ -2011,11 +2428,11 @@ namespace OpenSMOKE
 		for (int i = 0; i < grid_.Np(); i++)
 		{
 			// Gas-phase properties
-			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << tau(i);
-			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << grid_.x()(i) * 100.;
+			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << csi_(i);
+			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << grid_.x()[i] * 100.;
 			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << T_(i);
-			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << m_(i) / rho_(i)*100.;
-			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << m_(i);
+			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << (n_geometry_ - 1.)*U_(i) / rho_(i)*100.;
+			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << U_(i);
 			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << rho_(i);
 
 			// Analysis of soot
@@ -2038,14 +2455,14 @@ namespace OpenSMOKE
 			hmom_->SetConcentrations("kmol/m3", conc_OH, conc_H, conc_H2O, conc_H2, conc_C2H2, conc_O2, conc_PAH);
 			hmom_->SetViscosity(SutherlandViscosity(T_[i]));
 			hmom_->CalculateSourceMoments();
-			
+
 			// Soot properties
 			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << hmom_->SootVolumeFraction();
 			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << hmom_->SootParticleNumberDensity();
 			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << hmom_->SootParticleDiameter()*1e9;
 			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << hmom_->SootCollisionParticleDiameter()*1e9;
 			fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << hmom_->SootNumberOfPrimaryParticles();
-			
+
 			// Soot moments
 			for (unsigned int j = 0; j < hmom_->n_moments(); j++)
 				fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(20) << hmom_M_[i](j);
@@ -2105,35 +2522,48 @@ namespace OpenSMOKE
 			// Source terms (coagulation discrete)
 			for (unsigned int j = 0; j < hmom_->n_moments(); j++)
 				fOutputHMOM << std::scientific << std::setprecision(9) << std::setw(30) << hmom_->sources_coagulation_continous_ll()(j);
-			
+
 			fOutputHMOM << std::endl;
 		}
 
 		fOutputHMOM.close();
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::PrintOnTheFlyPostProcessing()
+	void OpenSMOKE_CounterFlowFlame1D::PrintOnTheFlyPostProcessing()
 	{
 		// Local residence time
 		Eigen::VectorXd tau;
 		ResidenceTime(tau);
 
 		// Output files
-		on_the_fly_post_processing_->PrepareOutputFiles();
+		std::vector<std::string> additional(1);
+		additional[0] = "csi[-]";
+		on_the_fly_post_processing_->PrepareOutputFiles(additional);
 		for (int i = 0; i < grid_.Np(); i++)
 		{
 			OpenSMOKE::OpenSMOKEVectorDouble omega(thermodynamicsMap_.NumberOfSpecies());
 			for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 				omega[j+1] = Y_[i](j);
-			on_the_fly_post_processing_->WriteOnFile(tau(i), grid_.x()[i], 0., 0., T_(i), P_, omega);
+
+			std::vector<double> additional(1);
+			additional[0] = csi_(i);
+
+			on_the_fly_post_processing_->WriteOnFile(tau(i), grid_.x()[i], 0., 0., T_(i), P_, omega, additional);
 		}
 		on_the_fly_post_processing_->CloseOutputFiles();
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::MinimumUnknownsVector(double* v)
+//	void InitialTemperatureProfile(const double xcen, const double width)
+//	{
+//
+//	}
+
+	void OpenSMOKE_CounterFlowFlame1D::MinimumUnknownsVector(double* v)
 	{
-		const double minimum_temperature = 200.;		// [K]
-		const double minimum_mass_flow_rate = 1.e-6;	// [kg/s]
+		const double minimum_U = -1.e32;				// [kg/m2/s]
+		const double minimum_G = -1.e32;				// [kg/m2/s]
+		const double minimum_H = -1.e32;				// [kg/m2/s]
+		const double minimum_temperature = 100.;		// [K]
 		const double zero = 0.;
 
 		if (type_ == SIMULATION_TYPE_YTM)
@@ -2145,7 +2575,22 @@ namespace OpenSMOKE
 					v[count++] = zero;
 
 				v[count++] = minimum_temperature;
-				v[count++] = minimum_mass_flow_rate;
+				v[count++] = minimum_U;
+				v[count++] = minimum_H;
+				v[count++] = minimum_G;
+			}
+		}
+		else if (type_ == SIMULATION_TYPE_YM)
+		{
+			unsigned int count = 0;
+			for (int i = 0; i < grid_.Np(); i++)
+			{
+				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+					v[count++] = zero;
+
+				v[count++] = minimum_U;
+				v[count++] = minimum_H;
+				v[count++] = minimum_G;
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_YT)
@@ -2174,7 +2619,19 @@ namespace OpenSMOKE
 			for (int i = 0; i < grid_.Np(); i++)
 			{
 				v[count++] = minimum_temperature;
-				v[count++] = minimum_mass_flow_rate;
+				v[count++] = minimum_U;
+				v[count++] = minimum_G;
+				v[count++] = minimum_H;
+			}
+		}
+		else if (type_ == SIMULATION_TYPE_M)
+		{
+			unsigned int count = 0;
+			for (int i = 0; i < grid_.Np(); i++)
+			{
+				v[count++] = minimum_U;
+				v[count++] = minimum_G;
+				v[count++] = minimum_H;
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_HMOM)
@@ -2191,7 +2648,6 @@ namespace OpenSMOKE
 			{
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					v[count++] = zero;
-
 				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
 					v[count++] = zero;
 			}
@@ -2208,12 +2664,19 @@ namespace OpenSMOKE
 					v[count++] = zero;
 			}
 		}
+		else if (type_ == SIMULATION_TYPE_CSI)
+		{
+			for (int i = 0; i < grid_.Np(); i++)
+				v[i] = zero;
+		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::MaximumUnknownsVector(double* v)
+	void OpenSMOKE_CounterFlowFlame1D::MaximumUnknownsVector(double* v)
 	{
-		const double maximum_temperature = 3000.;	// [K]
-		const double maximum_mass_flow_rate = 100.;	// [kg/s]
+		const double maximum_U = 1e32;				// [kg/m2/s]
+		const double maximum_G = 1e32;				// [??]
+		const double maximum_H = 1e32;				// [??]
+		const double maximum_temperature = 10000.;	// [K]
 		const double one = 1.;
 		const double big = 1.e16;
 
@@ -2226,7 +2689,22 @@ namespace OpenSMOKE
 					v[count++] = one;
 
 				v[count++] = maximum_temperature;
-				v[count++] = maximum_mass_flow_rate;
+				v[count++] = maximum_U;
+				v[count++] = maximum_G;
+				v[count++] = maximum_H;
+			}
+		}
+		else if (type_ == SIMULATION_TYPE_YM)
+		{
+			unsigned int count = 0;
+			for (int i = 0; i < grid_.Np(); i++)
+			{
+				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+					v[count++] = one;
+
+				v[count++] = maximum_U;
+				v[count++] = maximum_G;
+				v[count++] = maximum_H;
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_YT)
@@ -2255,7 +2733,19 @@ namespace OpenSMOKE
 			for (int i = 0; i < grid_.Np(); i++)
 			{
 				v[count++] = maximum_temperature;
-				v[count++] = maximum_mass_flow_rate;
+				v[count++] = maximum_U;
+				v[count++] = maximum_G;
+				v[count++] = maximum_H;
+			}
+		}
+		else if (type_ == SIMULATION_TYPE_M)
+		{
+			unsigned int count = 0;
+			for (int i = 0; i < grid_.Np(); i++)
+			{
+				v[count++] = maximum_U;
+				v[count++] = maximum_G;
+				v[count++] = maximum_H;
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_HMOM)
@@ -2288,9 +2778,14 @@ namespace OpenSMOKE
 					v[count++] = big;
 			}
 		}
+		else if (type_ == SIMULATION_TYPE_CSI)
+		{
+			for (int i = 0; i < grid_.Np(); i++)
+				v[i] = one;
+		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::UnknownsVector(double* v)
+	void OpenSMOKE_CounterFlowFlame1D::UnknownsVector(double* v)
 	{
 		if (type_ == SIMULATION_TYPE_YTM)
 		{
@@ -2300,8 +2795,23 @@ namespace OpenSMOKE
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					v[count++] = Y_[i](j);
 
-				v[count++] = T_(i);
-				v[count++] = m_(i);
+				v[count++] = T_[i];
+				v[count++] = U_[i];
+				v[count++] = G_[i];
+				v[count++] = H_[i];
+			}
+		}
+		else if (type_ == SIMULATION_TYPE_YM)
+		{
+			unsigned int count = 0;
+			for (int i = 0; i < grid_.Np(); i++)
+			{
+				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+					v[count++] = Y_[i](j);
+
+				v[count++] = U_[i];
+				v[count++] = G_[i];
+				v[count++] = H_[i];
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_YT)
@@ -2312,7 +2822,7 @@ namespace OpenSMOKE
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					v[count++] = Y_[i](j);
 
-				v[count++] = T_(i);
+				v[count++] = T_[i];
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_Y)
@@ -2329,8 +2839,20 @@ namespace OpenSMOKE
 			unsigned int count = 0;
 			for (int i = 0; i < grid_.Np(); i++)
 			{
-				v[count++] = T_(i);
-				v[count++] = m_(i);
+				v[count++] = T_[i];
+				v[count++] = U_[i];
+				v[count++] = G_[i];
+				v[count++] = H_[i];
+			}
+		}
+		else if (type_ == SIMULATION_TYPE_M)
+		{
+			unsigned int count = 0;
+			for (int i = 0; i < grid_.Np(); i++)
+			{
+				v[count++] = U_[i];
+				v[count++] = G_[i];
+				v[count++] = H_[i];
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_HMOM)
@@ -2363,9 +2885,14 @@ namespace OpenSMOKE
 					v[count++] = hmom_M_[i](j);
 			}
 		}
+		else if (type_ == SIMULATION_TYPE_CSI)
+		{
+			for (int i = 0; i < grid_.Np(); i++)
+				v[i] = csi_(i);
+		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::CorrectedUnknownsVector(const double* v)
+	void OpenSMOKE_CounterFlowFlame1D::CorrectedUnknownsVector(const double* v)
 	{
 		if (type_ == SIMULATION_TYPE_YTM)
 		{
@@ -2376,11 +2903,29 @@ namespace OpenSMOKE
 					Y_[i](j) = v[count++];
 
 				T_(i) = v[count++];
-				m_(i) = v[count++];
+				U_(i) = v[count++];
+				G_(i) = v[count++];
+				H_(i) = v[count++];
 			}
 
-			// Boundary
-			m_inlet_ = m_(0);
+			// Boundary (TODO)
+			// m_inlet_ = m_(0);
+		}
+		else if (type_ == SIMULATION_TYPE_YM)
+		{
+			unsigned int count = 0;
+			for (int i = 0; i < grid_.Np(); i++)
+			{
+				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+					Y_[i](j) = v[count++];
+
+				U_(i) = v[count++];
+				G_(i) = v[count++];
+				H_(i) = v[count++];
+			}
+
+			// Boundary (TODO)
+			// m_inlet_ = m_(0);
 		}
 		else if (type_ == SIMULATION_TYPE_YT)
 		{
@@ -2408,11 +2953,26 @@ namespace OpenSMOKE
 			for (int i = 0; i < grid_.Np(); i++)
 			{
 				T_(i) = v[count++];
-				m_(i) = v[count++];
+				U_(i) = v[count++];
+				G_(i) = v[count++];
+				H_(i) = v[count++];
 			}
 
-			// Boundary
-			m_inlet_ = m_(0);
+			// Boundary (TODO)
+			// m_inlet_ = m_(0);
+		}
+		else if (type_ == SIMULATION_TYPE_M)
+		{
+			unsigned int count = 0;
+			for (int i = 0; i < grid_.Np(); i++)
+			{
+				U_(i) = v[count++];
+				G_(i) = v[count++];
+				H_(i) = v[count++];
+			}
+
+			// Boundary (TODO)
+			// m_inlet_ = m_(0);
 		}
 		else if (type_ == SIMULATION_TYPE_HMOM)
 		{
@@ -2420,6 +2980,9 @@ namespace OpenSMOKE
 			for (int i = 0; i < grid_.Np(); i++)
 				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
 					hmom_M_[i](j) = v[count++];
+
+			// Boundary (TODO)
+			// m_inlet_ = m_(0);
 		}
 		else if (type_ == SIMULATION_TYPE_Y_HMOM)
 		{
@@ -2431,7 +2994,11 @@ namespace OpenSMOKE
 				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
 					hmom_M_[i](j) = v[count++];
 			}
+
+			// Boundary (TODO)
+			// m_inlet_ = m_(0);
 		}
+
 		else if (type_ == SIMULATION_TYPE_YT_HMOM)
 		{
 			unsigned int count = 0;
@@ -2443,6 +3010,18 @@ namespace OpenSMOKE
 				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
 					hmom_M_[i](j) = v[count++];
 			}
+
+			// Boundary (TODO)
+			// m_inlet_ = m_(0);
+		}
+
+		else if (type_ == SIMULATION_TYPE_CSI)
+		{
+			for (int i = 0; i < grid_.Np(); i++)
+				csi_(i) = v[i];
+
+			// Boundary (TODO)
+			// m_inlet_ = m_(0);
 		}
 
 		// Properties and fluxes
@@ -2450,11 +3029,11 @@ namespace OpenSMOKE
 		DiffusionFluxes();
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SetAlgebraicDifferentialEquations()
+	void OpenSMOKE_CounterFlowFlame1D::SetAlgebraicDifferentialEquations()
 	{
 		if (type_ == SIMULATION_TYPE_YTM)
 		{
-			id_equations_.resize((thermodynamicsMap_.NumberOfSpecies() + 2)*grid_.Np());
+			id_equations_.resize((thermodynamicsMap_.NumberOfSpecies() + 4)*grid_.Np());
 
 			unsigned int count = 0;
 
@@ -2462,6 +3041,8 @@ namespace OpenSMOKE
 			{
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					id_equations_[count++] = false;
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
 				id_equations_[count++] = false;
 				id_equations_[count++] = false;
 			}
@@ -2474,12 +3055,50 @@ namespace OpenSMOKE
 
 				id_equations_[count++] = true;
 				id_equations_[count++] = false;
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
 			}
 
 			// Outlet boundary
 			{
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					id_equations_[count++] = false;
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
+			}
+		}
+		else if (type_ == SIMULATION_TYPE_YM)
+		{
+			id_equations_.resize((thermodynamicsMap_.NumberOfSpecies() + 3)*grid_.Np());
+
+			unsigned int count = 0;
+
+			// Inlet boundary
+			{
+				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+					id_equations_[count++] = false;
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
+			}
+
+			// Internal points
+			for (int i = 1; i < grid_.Ni(); i++)
+			{
+				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+					id_equations_[count++] = true;
+				id_equations_[count++] = false;
+				id_equations_[count++] = true;
+				id_equations_[count++] = false;
+			}
+
+			// Outlet boundary
+			{
+				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+					id_equations_[count++] = false;
+				id_equations_[count++] = false;
 				id_equations_[count++] = false;
 				id_equations_[count++] = false;
 			}
@@ -2539,12 +3158,14 @@ namespace OpenSMOKE
 		}
 		else if (type_ == SIMULATION_TYPE_TM)
 		{
-			id_equations_.resize(2*grid_.Np());
+			id_equations_.resize(4*grid_.Np());
 
 			unsigned int count = 0;
 
 			// Inlet boundary
 			{
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
 				id_equations_[count++] = false;
 				id_equations_[count++] = false;
 			}
@@ -2554,10 +3175,42 @@ namespace OpenSMOKE
 			{
 				id_equations_[count++] = true;
 				id_equations_[count++] = false;
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
 			}
 
 			// Outlet boundary
 			{
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
+			}
+		}
+		else if (type_ == SIMULATION_TYPE_M)
+		{
+			id_equations_.resize(3 * grid_.Np());
+
+			unsigned int count = 0;
+
+			// Inlet boundary
+			{
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
+				id_equations_[count++] = false;
+			}
+
+			// Internal points
+			for (int i = 1; i < grid_.Ni(); i++)
+			{
+				id_equations_[count++] = false;
+				id_equations_[count++] = true;
+				id_equations_[count++] = false;
+			}
+
+			// Outlet boundary
+			{
+				id_equations_[count++] = false;
 				id_equations_[count++] = false;
 				id_equations_[count++] = false;
 			}
@@ -2579,7 +3232,7 @@ namespace OpenSMOKE
 
 			// Outlet boundary
 			for (unsigned int j = 0; j < hmom_->n_moments(); j++)
-				id_equations_[count++] = true;
+				id_equations_[count++] = false;
 		}
 		else if (type_ == SIMULATION_TYPE_Y_HMOM)
 		{
@@ -2594,6 +3247,7 @@ namespace OpenSMOKE
 				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
 					id_equations_[count++] = false;
 			}
+
 			// Internal points
 			for (int i = 1; i < grid_.Ni(); i++)
 			{
@@ -2608,7 +3262,7 @@ namespace OpenSMOKE
 				for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 					id_equations_[count++] = false;
 				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
-					id_equations_[count++] = true;
+					id_equations_[count++] = false;
 			}
 		}
 		else if (type_ == SIMULATION_TYPE_YT_HMOM)
@@ -2625,6 +3279,7 @@ namespace OpenSMOKE
 				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
 					id_equations_[count++] = false;
 			}
+
 			// Internal points
 			for (int i = 1; i < grid_.Ni(); i++)
 			{
@@ -2641,8 +3296,24 @@ namespace OpenSMOKE
 					id_equations_[count++] = false;
 				id_equations_[count++] = false;
 				for (unsigned int j = 0; j < hmom_->n_moments(); j++)
-					id_equations_[count++] = true;
+					id_equations_[count++] = false;
 			}
+		}
+		else if (type_ == SIMULATION_TYPE_CSI)
+		{
+			id_equations_.resize(1 * grid_.Np());
+
+			unsigned int count = 0;
+
+			// Inlet boundary
+			id_equations_[count++] = false;
+
+			// Internal points
+			for (int i = 1; i < grid_.Ni(); i++)
+				id_equations_[count++] = true;
+
+			// Outlet boundary
+			id_equations_[count++] = false;
 		}
 
 		unsigned int n_algebraic = std::count_if(id_equations_.begin(), id_equations_.end(), std::bind2nd(std::equal_to<bool>(), false));
@@ -2660,7 +3331,7 @@ namespace OpenSMOKE
 		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::AlgebraicDifferentialVector(double* v)
+	void OpenSMOKE_CounterFlowFlame1D::AlgebraicDifferentialVector(double* v)
 	{
 		int count = 0;
 		for (unsigned int i = 0; i < id_equations_.size(); i++)
@@ -2670,7 +3341,7 @@ namespace OpenSMOKE
 		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::CorrectDifferentialEquations(double* upv, double* resv)
+	void OpenSMOKE_CounterFlowFlame1D::CorrectDifferentialEquations(double* upv, double* resv)
 	{
 		for (int i = 0; i < differential_equations_.size(); i++)
 		{
@@ -2679,7 +3350,7 @@ namespace OpenSMOKE
 		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::CorrectAlgebraicEquations(double* yp)
+	void OpenSMOKE_CounterFlowFlame1D::CorrectAlgebraicEquations(double* yp)
 	{
 		for (int i = 0; i < algebraic_equations_.size(); i++)
 		{
@@ -2688,7 +3359,7 @@ namespace OpenSMOKE
 		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Update(const std::vector<Eigen::VectorXd>& phi)
+	void OpenSMOKE_CounterFlowFlame1D::Update(const std::vector<Eigen::VectorXd>& phi)
 	{
 		MemoryAllocation();
 
@@ -2697,95 +3368,60 @@ namespace OpenSMOKE
 					Y_[j](i) = phi[i](j);
 		
 		T_ = phi[thermodynamicsMap_.NumberOfSpecies()];
-		m_ = phi[thermodynamicsMap_.NumberOfSpecies() + 1];
-
-		m_inlet_ = m_(0);
+		U_ = phi[thermodynamicsMap_.NumberOfSpecies() + 1];
+		G_ = phi[thermodynamicsMap_.NumberOfSpecies() + 2];
+		H_ = phi[thermodynamicsMap_.NumberOfSpecies() + 3];
 
 		Properties();
 		DiffusionFluxes();
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SensitivityAnalysis()
+	void OpenSMOKE_CounterFlowFlame1D::SensitivityAnalysis()
 	{
-		if (solver_type_ == SOLVER_TYPE_FLAMESPEED)
-		{
-			const unsigned int index_temperature = thermodynamicsMap_.NumberOfSpecies();
-			const unsigned int index_mass_flow_rate = thermodynamicsMap_.NumberOfSpecies() + 1;
+		const unsigned int index_temperature = thermodynamicsMap_.NumberOfSpecies();
+		const unsigned int index_mass_flow_rate = thermodynamicsMap_.NumberOfSpecies() + 1;
 
-			OpenSMOKE::SensitivityMap_BlockTridiagonal_SteadyState sens(kineticsMap_, NumberOfEquations(), BlockDimensions());
-			sens.SetIndexOfTemperature(index_temperature);
-			sens.SetIndexOfMassFlowRate(index_mass_flow_rate);
-			sens.SetIndicesOfSpecies(indices_of_sensitivity_species_);
+		OpenSMOKE::SensitivityMap_BlockTridiagonal_SteadyState sens(kineticsMap_, NumberOfEquations(), BlockDimensions());
+		sens.SetIndexOfTemperature(index_temperature);
+		sens.SetIndexOfMassFlowRate(index_mass_flow_rate);
+		sens.SetIndicesOfSpecies(indices_of_sensitivity_species_);
 
-			// Scaling factors
-			std::vector<Eigen::VectorXd> scaling_Jp(grid_.Np());
-			for (int i = 0; i < grid_.Np(); i++)
-				scaling_Jp[i].resize(BlockDimensions());
-			for (unsigned int i = 0; i < thermodynamicsMap_.NumberOfSpecies(); i++)
-				for (int j = 0; j < grid_.Np(); j++)
-					scaling_Jp[j](i) = thermodynamicsMap_.MW(i) / rho_(j);
+		// Scaling factors
+		std::vector<Eigen::VectorXd> scaling_Jp(grid_.Np());
+		for (int i = 0; i < grid_.Np(); i++)
+			scaling_Jp[i].resize(BlockDimensions());	
+		for (unsigned int i = 0; i < thermodynamicsMap_.NumberOfSpecies(); i++)
 			for (int j = 0; j < grid_.Np(); j++)
-				scaling_Jp[j](index_temperature) = 1. / (rho_(j)*cp_(j));
-			for (int j = 0; j < grid_.Np(); j++)
-				scaling_Jp[j](index_mass_flow_rate) = 1.;
+				scaling_Jp[j](i) = thermodynamicsMap_.MW(i) / rho_(j);
+		for (int j = 0; j < grid_.Np(); j++)
+			scaling_Jp[j](index_temperature) = 1. / (rho_(j)*cp_(j));
+		for (int j = 0; j < grid_.Np(); j++)
+			scaling_Jp[j](index_mass_flow_rate) = 1.;
 
-			// Jacobian matrix
-			OpenSMOKE::OpenSMOKEBandMatrixDouble* J;
-			J = new OpenSMOKE::OpenSMOKEBandMatrixDouble(NumberOfEquations(), BlockDimensions());
-			if (J == NULL)
-				OpenSMOKE::FatalErrorMessage("Sensitivity Analysis: Memory allocation for tridiagonal-block matrix");
-			J->SetToZero();
+		// Jacobian matrix
+		OpenSMOKE::OpenSMOKEBandMatrixDouble* J;
+		J = new OpenSMOKE::OpenSMOKEBandMatrixDouble(NumberOfEquations(), BlockDimensions());
+		if (J == NULL)
+			OpenSMOKE::FatalErrorMessage("Sensitivity Analysis: Memory allocation for tridiagonal-block matrix");
+		J->SetToZero();
 
-			// Calculation of Jacobian matrix
-			Jacobian(J);
+		// Calculation of Jacobian matrix
+		Jacobian(J);
 
-			// Calculate sensitivity coefficients
-			sens.Calculate(T_, P_, X_, *J, scaling_Jp);
+		// Calculate sensitivity coefficients
+		sens.Calculate(T_, P_, X_, *J, scaling_Jp);
 
-			// Destroy the Jacobian matrix
-			J->DestroyMat();
-
-			// Write sensitivity coefficients
-			sens.SaveOnXMLFile(output_folder_.string().c_str());
-		}
-		else if (solver_type_ == SOLVER_TYPE_BURNERSTABILIZED)
-		{
-			OpenSMOKE::SensitivityMap_BlockTridiagonal_SteadyState sens(kineticsMap_, NumberOfEquations(), BlockDimensions());
-			sens.SetIndicesOfSpecies(indices_of_sensitivity_species_);
-
-			// Scaling factors
-			std::vector<Eigen::VectorXd> scaling_Jp(grid_.Np());
-			for (int i = 0; i < grid_.Np(); i++)
-				scaling_Jp[i].resize(BlockDimensions());
-			for (unsigned int i = 0; i < thermodynamicsMap_.NumberOfSpecies(); i++)
-				for (int j = 0; j < grid_.Np(); j++)
-					scaling_Jp[j](i) = thermodynamicsMap_.MW(i) / rho_(j);
-
-			// Jacobian matrix
-			OpenSMOKE::OpenSMOKEBandMatrixDouble* J;
-			J = new OpenSMOKE::OpenSMOKEBandMatrixDouble(NumberOfEquations(), BlockDimensions());
-			if (J == NULL)
-				OpenSMOKE::FatalErrorMessage("Sensitivity Analysis: Memory allocation for tridiagonal-block matrix");
-			J->SetToZero();
-
-			// Calculation of Jacobian matrix
-			Jacobian(J);
-
-			// Calculate sensitivity coefficients
-			sens.Calculate(T_, P_, X_, *J, scaling_Jp);
-
-			// Destroy the Jacobian matrix
-			J->DestroyMat();
-
-			// Write sensitivity coefficients
-			sens.SaveOnXMLFile(output_folder_.string().c_str());
-		}
+		// Destroy the Jacobian matrix
+		J->DestroyMat();
+		
+		// Write sensitivity coefficients
+		sens.SaveOnXMLFile(output_folder_.string().c_str());
 	}
 
 	// Print XML Files
-	void OpenSMOKE_PremixedLaminarFlame1D::PrintXMLFile(const std::string file_name)
+	void OpenSMOKE_CounterFlowFlame1D::PrintXMLFile(const std::string file_name)
 	{
-		const unsigned int n_additional = 8;
+		const unsigned int n_additional = 11;
 		
 		std::ofstream fXML;
 		fXML.open(file_name.c_str(), std::ios::out);
@@ -2806,6 +3442,9 @@ namespace OpenSMOKE
 		fXML << "heat-release [W/m3] 7" << std::endl;
 		fXML << "axial-velocity [m/s] 8" << std::endl;
 		fXML << "mass-flow-rate [kg/m2/s] 9" << std::endl;
+		fXML << "G-radial [kg/m3/s] 10" << std::endl;
+		fXML << "H-eigenvalue [kg/m3/s2] 11" << std::endl;
+		fXML << "csi [-] 12" << std::endl;
 		fXML << "</additional>" << std::endl;
 
 		fXML << "<t-p-mw>" << std::endl;
@@ -2827,8 +3466,11 @@ namespace OpenSMOKE
 			fXML << mw_(i) << " ";
 			fXML << rho_(i) << " ";
 			fXML << Q_(i) << " ";
-			fXML << m_(i)/rho_(i) << " ";
-			fXML << m_(i) << " ";
+			fXML << U_(i)/rho_(i) << " ";					// TODO
+			fXML << U_(i) << " ";							// TODO
+			fXML << G_(i) << " ";							// TODO
+			fXML << H_(i) << " ";							// TODO
+			fXML << csi_(i) << " ";
 
 			for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
 				fXML << Y_[i](j) << " ";
@@ -2843,18 +3485,15 @@ namespace OpenSMOKE
 		fXML.close();
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::Jacobian(OpenSMOKE::OpenSMOKEBandMatrixDouble* J)
+	void OpenSMOKE_CounterFlowFlame1D::Jacobian(OpenSMOKE::OpenSMOKEBandMatrixDouble* J)
 	{
 		// Definition of constants
-		const int neq = flame_premixed->NumberOfEquations();
+		const int neq = flame_cfdf->NumberOfEquations();
 		const int width_ = J->nUpper() + J->nLower() + 1;
 		const int ngroups_ = std::min(width_, neq);
 		const double ZERO_DER = 1.e-8;
 		const double ETA2 = std::sqrt(OpenSMOKE::OPENSMOKE_MACH_EPS_DOUBLE);
 		const double DEFAULT_RELATIVE_TOLERANCE = std::sqrt(MachEpsFloat());
-
-		Eigen::VectorXd xMax(neq);
-		flame_premixed->MaximumUnknownsVector(xMax.data());
 
 		// Memory allocation
 		Eigen::VectorXd x(neq);
@@ -2863,17 +3502,14 @@ namespace OpenSMOKE
 		Eigen::VectorXd hJ(neq);
 
 		// Order of magnitude of unknowns
-		Eigen::VectorXd x_measure = x;
+		Eigen::VectorXd x_measure(neq);
+		x_measure.setConstant(1.);
 		for (int i = 0; i < neq; i++)
-		{
-			if (x_measure(i) != 0.)
-				x_measure(i) = std::fabs(x_measure(i)*DEFAULT_RELATIVE_TOLERANCE);
-			else
-				x_measure(i) = 1.;
-		}
+		if (x_measure(i) != 0.)
+			x_measure(i) = std::fabs(x_measure(i)*DEFAULT_RELATIVE_TOLERANCE);
 
 		// Current solution
-		flame_premixed->UnknownsVector(x.data());
+		flame_cfdf->UnknownsVector(x.data());
 		this->Equations(0., x.data(), f.data());
 
 		// Save the original solution
@@ -2889,9 +3525,6 @@ namespace OpenSMOKE
 				hJ(j) = ETA2*std::max(xh, xdh);
 				hJ(j) = std::max(hJ(j), ZERO_DER);
 				hJ(j) = std::min(hJ(j), 0.001 + 0.001*std::fabs(xh));
-
-				if (xh + hJ(j) > xMax(j))
-					hJ(j) = -hJ(j);
 
 				x_plus(j) += hJ(j);
 			}
@@ -2911,7 +3544,7 @@ namespace OpenSMOKE
 		}
 	}
 
-	int OpenSMOKE_PremixedLaminarFlame1D::SolveInitialDAE(DaeSMOKE::DaeSolver_Parameters& dae_parameters, const double tEnd)
+	int OpenSMOKE_CounterFlowFlame1D::SolveInitialDAE(DaeSMOKE::DaeSolver_Parameters& dae_parameters, const double tEnd)
 	{
 		int flag = -1;
 
@@ -2919,151 +3552,151 @@ namespace OpenSMOKE
 		if (dae_parameters.type() != DaeSMOKE::DaeSolver_Parameters::DAE_INTEGRATOR_BZZDAE)
 		{
 			if (dae_parameters.sparse_linear_algebra() == false)
-				flag = DaeSMOKE::Solve_Band_OpenSMOKEppDae<OpenSMOKE_PremixedLaminarFlame1D, OpenSMOKE_Flame1D_MyDaeSystem_OpenSMOKEpp_Premixed_FLAMESPEED>(this, dae_parameters, 0., tEnd);
+				flag = DaeSMOKE::Solve_Band_OpenSMOKEppDae<OpenSMOKE_CounterFlowFlame1D, OpenSMOKE_Flame1D_MyDaeSystem_OpenSMOKEpp_CounterFlowFlame1D>(this, dae_parameters, 0., tEnd);
 			else
-				flag = DaeSMOKE::Solve_Sparse_OpenSMOKEppDae<OpenSMOKE_PremixedLaminarFlame1D, OpenSMOKE_Flame1D_MyDaeSystem_OpenSMOKEpp_Premixed_FLAMESPEED>(this, dae_parameters, 0., tEnd);
+				flag = DaeSMOKE::Solve_Sparse_OpenSMOKEppDae<OpenSMOKE_CounterFlowFlame1D, OpenSMOKE_Flame1D_MyDaeSystem_OpenSMOKEpp_CounterFlowFlame1D>(this, dae_parameters, 0., tEnd);
 		}
 		#if OPENSMOKE_USE_BZZMATH == 1
 		else // if (dae_parameters.type() == DaeSMOKE::DaeSolver_Parameters::DAE_INTEGRATOR_BZZDAE)
-			flag = DaeSMOKE::Solve_TridiagonalBlock_BzzDae<OpenSMOKE_PremixedLaminarFlame1D, OpenSMOKE_Flame1D_MyDaeSystem_Premixed_FLAMESPEED>(this, dae_object_, dae_parameters, 0., tEnd);
+			flag = DaeSMOKE::Solve_TridiagonalBlock_BzzDae<OpenSMOKE_CounterFlowFlame1D, OpenSMOKE_Flame1D_MyDaeSystem_CounterFlowFlame1D>(this, dae_object_, dae_parameters, 0., tEnd);
 		#endif
 
 		return flag;
 	}
 
-	int OpenSMOKE_PremixedLaminarFlame1D::SolveDAE(DaeSMOKE::DaeSolver_Parameters& dae_parameters, const double tEnd)
+	int OpenSMOKE_CounterFlowFlame1D::SolveDAE(DaeSMOKE::DaeSolver_Parameters& dae_parameters, const double tEnd, const double tStart)
 	{
 		int flag = -1;
 
 		if (dae_parameters.type() == DaeSMOKE::DaeSolver_Parameters::DAE_INTEGRATOR_OPENSMOKEPP)
 		{
 			if (dae_parameters.sparse_linear_algebra() == false)
-				flag = DaeSMOKE::Solve_Band_OpenSMOKEppDae<OpenSMOKE_PremixedLaminarFlame1D, OpenSMOKE_Flame1D_MyDaeSystem_OpenSMOKEpp_Premixed_FLAMESPEED>(this, dae_parameters, 0., tEnd);
+				flag = DaeSMOKE::Solve_Band_OpenSMOKEppDae<OpenSMOKE_CounterFlowFlame1D, OpenSMOKE_Flame1D_MyDaeSystem_OpenSMOKEpp_CounterFlowFlame1D>(this, dae_parameters, tStart, tEnd);
 			else
-				flag = DaeSMOKE::Solve_Sparse_OpenSMOKEppDae<OpenSMOKE_PremixedLaminarFlame1D, OpenSMOKE_Flame1D_MyDaeSystem_OpenSMOKEpp_Premixed_FLAMESPEED>(this, dae_parameters, 0., tEnd);
+				flag = DaeSMOKE::Solve_Sparse_OpenSMOKEppDae<OpenSMOKE_CounterFlowFlame1D, OpenSMOKE_Flame1D_MyDaeSystem_OpenSMOKEpp_CounterFlowFlame1D>(this, dae_parameters, tStart, tEnd);
 		}
 		#if OPENSMOKE_USE_BZZMATH == 1
 		else if (dae_parameters.type() == DaeSMOKE::DaeSolver_Parameters::DAE_INTEGRATOR_BZZDAE)
-			flag = DaeSMOKE::Solve_TridiagonalBlock_BzzDae<OpenSMOKE_PremixedLaminarFlame1D, OpenSMOKE_Flame1D_MyDaeSystem_Premixed_FLAMESPEED>(this, dae_object_, dae_parameters, 0., tEnd);
+			flag = DaeSMOKE::Solve_TridiagonalBlock_BzzDae<OpenSMOKE_CounterFlowFlame1D, OpenSMOKE_Flame1D_MyDaeSystem_CounterFlowFlame1D>(this, dae_object_, dae_parameters, tStart, tEnd);
 		#endif
 		#if OPENSMOKE_USE_SUNDIALS == 1
 		else if (dae_parameters.type() == DaeSMOKE::DaeSolver_Parameters::DAE_INTEGRATOR_IDA)
-			flag = DaeSMOKE::Solve_Band_Ida<OpenSMOKE_PremixedLaminarFlame1D>(this, dae_parameters, 0., tEnd);
+			flag = DaeSMOKE::Solve_Band_Ida<OpenSMOKE_CounterFlowFlame1D>(this, dae_parameters, tStart, tEnd);
 		#endif
 		#if OPENSMOKE_USE_DASPK == 1
 		else if (dae_parameters.type() == DaeSMOKE::DaeSolver_Parameters::DAE_INTEGRATOR_DASPK)
-			flag = DaeSMOKE::Solve_Band_Daspk<OpenSMOKE_PremixedLaminarFlame1D>(this, dae_parameters, 0., tEnd);
+			flag = DaeSMOKE::Solve_Band_Daspk<OpenSMOKE_CounterFlowFlame1D>(this, dae_parameters, tStart, tEnd);
 		#endif
 
 		return flag;
 	}
 
-	int OpenSMOKE_PremixedLaminarFlame1D::SolveNLS(NlsSMOKE::NonLinearSolver_Parameters& nls_parameters)
+	int OpenSMOKE_CounterFlowFlame1D::SolveNLS(NlsSMOKE::NonLinearSolver_Parameters& nls_parameters)
 	{
 		int flag = -1;
 
 		if (nls_parameters.type() == NlsSMOKE::NonLinearSolver_Parameters::NLS_SOLVER_OPENSMOKEPP)
 		{
 			if (nls_parameters.sparse_linear_algebra() == false)
-				flag = NlsSMOKE::Solve_Band_OpenSMOKEppNls<OpenSMOKE_PremixedLaminarFlame1D, OpenSMOKE_Flame1D_MyNlsSystem_OpenSMOKEpp_Premixed_FLAMESPEED>(this, nls_parameters);
+				flag = NlsSMOKE::Solve_Band_OpenSMOKEppNls<OpenSMOKE_CounterFlowFlame1D, OpenSMOKE_Flame1D_MyNlsSystem_OpenSMOKEpp_CounterFlowFlame1D>(this, nls_parameters);
 			else
-				flag = NlsSMOKE::Solve_Sparse_OpenSMOKEppNls<OpenSMOKE_PremixedLaminarFlame1D, OpenSMOKE_Flame1D_MyNlsSystem_OpenSMOKEpp_Premixed_FLAMESPEED>(this, nls_parameters);
+				flag = NlsSMOKE::Solve_Sparse_OpenSMOKEppNls<OpenSMOKE_CounterFlowFlame1D, OpenSMOKE_Flame1D_MyNlsSystem_OpenSMOKEpp_CounterFlowFlame1D>(this, nls_parameters);
 		}
 		#if OPENSMOKE_USE_BZZMATH == 1
 		else if (nls_parameters.type() == NlsSMOKE::NonLinearSolver_Parameters::NLS_SOLVER_BZZNLS)
-			flag = NlsSMOKE::Solve_TridiagonalBlock_BzzNls<OpenSMOKE_PremixedLaminarFlame1D, OpenSMOKE_Flame1D_MyNlsSystem_Premixed_FLAMESPEED>(this, nls_object_, nls_parameters);
+			flag = NlsSMOKE::Solve_TridiagonalBlock_BzzNls<OpenSMOKE_CounterFlowFlame1D, OpenSMOKE_Flame1D_MyNlsSystem_CounterFlowFlame1D>(this, nls_object_, nls_parameters);
 		#endif
 		#if OPENSMOKE_USE_SUNDIALS == 1
 		else if (nls_parameters.type() == NlsSMOKE::NonLinearSolver_Parameters::NLS_SOLVER_KINSOL)
-			flag = NlsSMOKE::Solve_Band_KinSol<OpenSMOKE_PremixedLaminarFlame1D>(this, nls_parameters);
+			flag = NlsSMOKE::Solve_Band_KinSol<OpenSMOKE_CounterFlowFlame1D>(this, nls_parameters);
 		#endif
 
 		return flag;
 	}
 
-	int OpenSMOKE_PremixedLaminarFlame1D::SolveFalseTransient(NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters)
+	int OpenSMOKE_CounterFlowFlame1D::SolveFalseTransient(NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters)
 	{
 		int flag = -1;
 
 		if (false_transient_parameters.type() == NlsSMOKE::FalseTransientSolver_Parameters::FALSETRANSIENT_SOLVER_OPENSMOKEPP)
 		{
 			if (false_transient_parameters.sparse_linear_algebra() == false)
-				flag = NlsSMOKE::Solve_Band_OpenSMOKEppFalseTransient<OpenSMOKE_PremixedLaminarFlame1D, OpenSMOKE_Flame1D_MyFalseTransientSystem_OpenSMOKEpp_Premixed_FLAMESPEED>(this, false_transient_parameters);
+				flag = NlsSMOKE::Solve_Band_OpenSMOKEppFalseTransient<OpenSMOKE_CounterFlowFlame1D, OpenSMOKE_Flame1D_MyFalseTransientSystem_OpenSMOKEpp_CounterFlowFlame1D>(this, false_transient_parameters);
 			else
-				flag = NlsSMOKE::Solve_Sparse_OpenSMOKEppFalseTransient<OpenSMOKE_PremixedLaminarFlame1D, OpenSMOKE_Flame1D_MyFalseTransientSystem_OpenSMOKEpp_Premixed_FLAMESPEED>(this, false_transient_parameters);
+				flag = NlsSMOKE::Solve_Sparse_OpenSMOKEppFalseTransient<OpenSMOKE_CounterFlowFlame1D, OpenSMOKE_Flame1D_MyFalseTransientSystem_OpenSMOKEpp_CounterFlowFlame1D>(this, false_transient_parameters);
 		}
 		#if OPENSMOKE_USE_BZZMATH == 1
 		else if (false_transient_parameters.type() == NlsSMOKE::FalseTransientSolver_Parameters::FALSETRANSIENT_SOLVER_BZZNLS)
-			flag = NlsSMOKE::Solve_Band_BzzNlsFalseTransient<OpenSMOKE_PremixedLaminarFlame1D, OpenSMOKE_Flame1D_MyFalseTransientSystem_Premixed_FLAMESPEED>(this, nls_object_, false_transient_parameters);
+			flag = NlsSMOKE::Solve_Band_BzzNlsFalseTransient<OpenSMOKE_CounterFlowFlame1D, OpenSMOKE_Flame1D_MyFalseTransientSystem_CounterFlowFlame1D>(this, nls_object_, false_transient_parameters);
 		#endif
 		#if OPENSMOKE_USE_SUNDIALS == 1
 		else if (false_transient_parameters.type() == NlsSMOKE::FalseTransientSolver_Parameters::FALSETRANSIENT_SOLVER_KINSOL)
-			flag = NlsSMOKE::Solve_Band_KinSolFalseTransient<OpenSMOKE_PremixedLaminarFlame1D>(this, false_transient_parameters);
+			flag = NlsSMOKE::Solve_Band_KinSolFalseTransient<OpenSMOKE_CounterFlowFlame1D>(this, false_transient_parameters);
 		#endif
 
 		return flag;
 	}
 
-	int OpenSMOKE_PremixedLaminarFlame1D::InitialSolutionFlameSpeed(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
-		NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
-		NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters)
+	int OpenSMOKE_CounterFlowFlame1D::InitialSolutionCounterFlowDiffusionFlame
+		(	DaeSMOKE::DaeSolver_Parameters& dae_parameters,
+			NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
+			NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters	)
 	{
 		// Solution from scratch:
-		// 1. Only mass fractions
+		// 1. Only momentum
+		//    a. NLS: OpenSMOKE++ (default) || BzzNls
+		//    b. DAE: OpenSMOKE++ (default) || BzzDae
+		// 2. Mass fractions and momentum
 		//    a. DAE: OpenSMOKE++ (default) || BzzDae
-		//    b. NLS: User choice
-		// 2. Only temperature and mass flow rate
+		//    b. NLS: OpenSMOKE++ (default) || BzzNls
+		// 3. Mass fractions, energy, and momentum
 		//    a. DAE: OpenSMOKE++ (default) || BzzDae
-		//    b. NLS: User choice
-		// 3. Complete
-		//    a. DAE: OpenSMOKE++ (default) || BzzDae
-		//    b. NLS: User choice
+		//    b. NLS: OpenSMOKE++ (default) || BzzNls
 
-		// Step 1
-		if (is_virtual_chemistry_ == false)
+		// Step 1: momentum
 		{
 			std::cout << std::endl;
 			std::cout << "----------------------------------------------------------" << std::endl;
-			std::cout << "                Initial Solution: Step 1 (Y)              " << std::endl;
+			std::cout << "                Initial Solution: Step 1 (M)              " << std::endl;
 			std::cout << "----------------------------------------------------------" << std::endl;
-			SetType(SIMULATION_TYPE_Y);
+			SetType(SIMULATION_TYPE_M);
+
+			int flag = -1;
+
+			// Solve the NL system
+			flag = SolveNLS(nls_parameters);
+
+			// Solve the DAE system
+			SolveInitialDAE(dae_parameters, timeFixedTemperature_);
+
+			// Write solution on ASCII file
+			Print((output_folder_ / "Solution.initial.M.out").string().c_str());
+		}
+
+		// Step 2: species and momentum
+		//if (is_virtual_chemistry_ == false)
+		{
+			std::cout << std::endl;
+			std::cout << "----------------------------------------------------------" << std::endl;
+			std::cout << "                Initial Solution: Step 2 (Y+M)            " << std::endl;
+			std::cout << "----------------------------------------------------------" << std::endl;
+			SetType(SIMULATION_TYPE_YM);
 
 			int flag = -1;
 
 			// Solve the DAE system
 			SolveInitialDAE(dae_parameters, timeFixedTemperature_);
 
-			// Then solve the NLS
-			if (use_nls_solver_ == true)
-				flag = SolveNLS(nls_parameters);
-			
-			// Write solution on ASCII file
-			Print((output_folder_ / "Solution.initial.Y.out").string().c_str());
-		}
-
-		// Step 2
-		if (is_virtual_chemistry_ == false)
-		{
-			std::cout << std::endl;
-			std::cout << "----------------------------------------------------------" << std::endl;
-			std::cout << "              Initial Solution: Step 2 (T+M)              " << std::endl;
-			std::cout << "----------------------------------------------------------" << std::endl;
-			SetType(SIMULATION_TYPE_TM);
-
-			int flag = -1;
-
-			// Solve the DAE system
-			SolveInitialDAE(dae_parameters, timeFixedTemperature_);
-
-			// Then solve the NLS
+			// Solve the NLS system
 			if (use_nls_solver_ == true)
 				flag = SolveNLS(nls_parameters);
 
 			// Write solution on ASCII file
-			Print((output_folder_ / "Solution.initial.TM.out").string().c_str());
+			Print((output_folder_ / "Solution.initial.YM.out").string().c_str());
 		}
-		
-		// Step 3
+
+		// Step 3: species, energy, and temperature
+		if (is_userdefined_fixed_temperature_profile_ == false)
 		{
 			std::cout << std::endl;
 			std::cout << "----------------------------------------------------------" << std::endl;
@@ -3074,83 +3707,65 @@ namespace OpenSMOKE
 			int flag = -1;
 
 			// Solve the DAE system
-			SolveInitialDAE(dae_parameters, timeComplete_);
+			flag = SolveInitialDAE(dae_parameters, timeComplete_);
+
+			// [DEBUG] If issues were found, try again
+			if (flag < 0)
+			{
+				std::cout << "WARNING: The DAE system was unable to reach a solution..." << std::endl;
+				std::cout << "         We try to solve successive DAE systems with increasing final integration times..." << std::endl;
+
+				for (unsigned int k = 1; k <= 5; k++)
+				{
+					const double tf = timeComplete_ / std::pow(10., 5 + 1 - k);
+					std::cout << " * " << k << ". Final time [s]: " << tf << std::endl;
+					flag = SolveInitialDAE(dae_parameters, tf);
+				}
+
+				if (flag < 0)
+				{
+					std::cout << "WARNING: The DAE system was unable to reach a solution..." << std::endl;
+					std::cout << "         We try to solve successive DAE systems with increasing number of equations..." << std::endl;
+
+					std::cout << " * 1. Fixed mass fractions..." << std::endl;
+					SetType(SIMULATION_TYPE_TM);
+					flag = SolveInitialDAE(dae_parameters, timeComplete_);
+
+					std::cout << "2. Fixed velocity and temperature..." << std::endl;
+					SetType(SIMULATION_TYPE_Y);
+					flag = SolveInitialDAE(dae_parameters, timeComplete_);
+
+					std::cout << "3. Complete..." << std::endl;
+					SetType(SIMULATION_TYPE_YTM);
+					flag = SolveInitialDAE(dae_parameters, timeComplete_);
+
+					if (flag < 0)
+					{
+						std::cout << "WARNING: The DAE system was unable to reach a solution..." << std::endl;
+						std::cout << "         We try to solve successive DAE systems with increasing final integration times..." << std::endl;
+
+						for (unsigned int k = 1; k <= 5; k++)
+						{
+							const double tf = timeComplete_ / std::pow(10., 5 + 1 - k);
+							std::cout << " * " << k << ". Final time [s]: " << tf << std::endl;
+							flag = SolveInitialDAE(dae_parameters, tf);
+						}
+					}
+
+					if (flag < 0)
+						OpenSMOKE::FatalErrorMessage("The solver was unable to find a solution on the starting grid. Try to change the setup of you problem.");
+				}
+			}
 
 			// Then solve the NLS
 			if (use_nls_solver_ == true)
 				flag = SolveNLS(nls_parameters);
 
 			// Write solution on ASCII file	
-			Print((output_folder_ / "Solution.initial.YTM.out").string().c_str() );
+			Print((output_folder_ / "Solution.initial.YTM.out").string().c_str());
 
-			// Polimi soot
+			// Write soot summary on file
 			if (is_polimi_soot_ == true)	
-				PrintSoot(output_folder_);
-
-			// On the fly post-processing
-			if (is_on_the_fly_post_processing_ == true)	
-				PrintOnTheFlyPostProcessing();
-		}
-
-		return 1;
-	}
-
-	int OpenSMOKE_PremixedLaminarFlame1D::InitialSolutionBurnerStabilized(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
-		NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
-		NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters)
-	{
-		// Solution from scratch:
-		// 1. Only mass fractions
-		//    a. DAE: OpenSMOKE++ (default) || BzzDae
-		//    b. NLS: User choice
-		// 2. Mass fractions and temperature
-		//    a. DAE: OpenSMOKE++ (default) || BzzDae
-		//    b. NLS: User choice
-
-		// Step 1
-		{
-			std::cout << std::endl;
-			std::cout << "----------------------------------------------------------" << std::endl;
-			std::cout << "                Initial Solution: Step 1 (Y)              " << std::endl;
-			std::cout << "----------------------------------------------------------" << std::endl;
-			SetType(SIMULATION_TYPE_Y);
-
-			int flag = -1;
-
-			// Solve the DAE system
-			SolveInitialDAE(dae_parameters, timeFixedTemperature_);
-
-			// Then solve the NLS
-			if (use_nls_solver_ == true)
-				flag = SolveNLS(nls_parameters);
-
-			// Write solution on ASCII file
-			Print((output_folder_ / "Solution.initial.Y.out").string().c_str());
-		}
-
-		// Step 2
-		if (is_fixed_temperature_profile_ == false)
-		{
-			std::cout << std::endl;
-			std::cout << "----------------------------------------------------------" << std::endl;
-			std::cout << "             Initial Solution: Step 3 (Y+T+M)             " << std::endl;
-			std::cout << "----------------------------------------------------------" << std::endl;
-			SetType(SIMULATION_TYPE_YT);
-
-			int flag = -1;
-
-			// Solve the DAE system
-			SolveInitialDAE(dae_parameters, timeComplete_);
-
-			// Then solve the NLS
-			if (use_nls_solver_ == true)
-				flag = SolveNLS(nls_parameters);
-
-			// Write solution on ASCII file	
-			Print((output_folder_ / "Solution.initial.YT.out").string().c_str());
-
-			// Polimi soot
-			if (is_polimi_soot_ == true)
 				PrintSoot(output_folder_);
 
 			// On the fly post-processing
@@ -3161,65 +3776,14 @@ namespace OpenSMOKE
 		return 1;
 	}
 
-	int OpenSMOKE_PremixedLaminarFlame1D::FixedTemperatureSolution(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
-		NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
-		NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters)
-	{
-		int flag = -1;
-
-		std::cout << std::endl;
-		std::cout << "----------------------------------------------------------" << std::endl;
-		std::cout << "              Solution at fixed temperature               " << std::endl;
-		std::cout << "----------------------------------------------------------" << std::endl;
-		SetType(SIMULATION_TYPE_Y);
-		
-		if (use_dae_solver_ == true)
-		{
-			flag = SolveDAE(dae_parameters, timeFixedTemperature_);
-
-			if (flag < 0)
-			{
-				// Then solve the non linear system
-				flag = SolveNLS(nls_parameters);
-
-				// In case of failure
-				if (flag < 0)
-				{
-					// Solve the false transient
-					SolveFalseTransient(false_transient_parameters);
-
-					// Then solves the non linear system
-					flag = SolveNLS(nls_parameters);
-				}
-			}
-		}
-		else  // The NLS is solved by definition
-		{
-			// Then solve the non linear system
-			flag = SolveNLS(nls_parameters);
-
-			// In case of failure
-			if (flag < 0)
-			{
-				// Solve the false transient
-				SolveFalseTransient(false_transient_parameters);
-
-				// Then solves the non linear system
-				flag = SolveNLS(nls_parameters);
-			}
-		}
-
-		return 1;
-	}
-
-	int OpenSMOKE_PremixedLaminarFlame1D::CompleteSolution(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
+	int OpenSMOKE_CounterFlowFlame1D::CompleteSolution(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
 		NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
 		NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters)
 	{
 		int flag = -1;
 
 		// Step 2
-		if (is_virtual_chemistry_ == false)
+		//if (is_virtual_chemistry_ == false)
 		{
 			std::cout << std::endl;
 			std::cout << "----------------------------------------------------------" << std::endl;
@@ -3245,6 +3809,20 @@ namespace OpenSMOKE
 		{
 			// Solve first the DAE system
 			flag = SolveDAE(dae_parameters, timeComplete_);
+
+			// [DEBUG] If issues were found, try again
+			if (flag < 0)
+			{
+				std::cout << "WARNING: The DAE system was unable to reach a solution..." << std::endl;
+				std::cout << "         We try to solve successive DAE systems with increasing final integration times..." << std::endl;
+
+				for (unsigned int k = 1; k <= 5; k++)
+				{
+					const double tf = timeComplete_ / std::pow(10., 5 + 1 - k);
+					std::cout << " * " << k << ". Final time [s]: " << tf << std::endl;
+					flag = SolveDAE(dae_parameters, tf);
+				}
+			}
 
 			// Then solve the non linear system
 			if (use_nls_solver_ == true)
@@ -3273,7 +3851,7 @@ namespace OpenSMOKE
 		return 1;
 	}
 
-	int OpenSMOKE_PremixedLaminarFlame1D::SolveBurnerStabilized(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
+	int OpenSMOKE_CounterFlowFlame1D::SolveCounterFlowDiffusionFlame(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
 		NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
 		NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters)
 	{
@@ -3283,33 +3861,49 @@ namespace OpenSMOKE
 		{
 			std::cout << std::endl;
 			std::cout << "----------------------------------------------------------" << std::endl;
-			std::cout << "               Preparation: Step 1 (Y)                    " << std::endl;
+			std::cout << "               Preparation: Step 1 (M)                    " << std::endl;
 			std::cout << "----------------------------------------------------------" << std::endl;
-			SetType(SIMULATION_TYPE_Y);
+			SetType(SIMULATION_TYPE_M);
 
 			const double tEnd = 1.;
 
+			// Then solve the non linear system
+			flag = SolveNLS(nls_parameters);
+
 			// Solve first the DAE system
 			flag = SolveDAE(dae_parameters, tEnd);
-
-			// Then solve the non linear system
-			if (use_nls_solver_ == true)
-				flag = SolveNLS(nls_parameters);
 		}
 
 		// Step 2
-		if (is_fixed_temperature_profile_ == false)
 		{
 			std::cout << std::endl;
 			std::cout << "----------------------------------------------------------" << std::endl;
 			std::cout << "                   Solution (complete)                    " << std::endl;
 			std::cout << "----------------------------------------------------------" << std::endl;
-			SetType(SIMULATION_TYPE_YT);
+			
+			if (is_userdefined_fixed_temperature_profile_ == false)
+				SetType(SIMULATION_TYPE_YTM);
+			else
+				SetType(SIMULATION_TYPE_YM);
 
 			if (use_dae_solver_ == true)
 			{
 				// Solve first the DAE system
 				flag = SolveDAE(dae_parameters, timeComplete_);
+
+				// [DEBUG] If issues were found, try again
+				if (flag < 0)
+				{
+					std::cout << "WARNING: The DAE system was unable to reach a solution..." << std::endl;
+					std::cout << "         We try to solve successive DAE systems with increasing final integration times..." << std::endl;
+
+					for (unsigned int k = 1; k <= 5; k++)
+					{
+						const double tf = timeComplete_ / std::pow(10., 5 + 1 - k);
+						std::cout << " * " << k << ". Final time [s]: " << tf << std::endl;
+						flag = SolveDAE(dae_parameters, tf);
+					}
+				}
 
 				// Then solve the non linear system
 				if (use_nls_solver_ == true)
@@ -3339,11 +3933,52 @@ namespace OpenSMOKE
 		return 1;
 	}
 
-	int OpenSMOKE_PremixedLaminarFlame1D::SolveHMOMFromExistingSolution(	
-						OpenSMOKE::HMOM& hmom,
-						DaeSMOKE::DaeSolver_Parameters& dae_parameters,
-						NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
-						NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters )
+	int OpenSMOKE_CounterFlowFlame1D::SolveDynamicBoundariesCounterFlowDiffusionFlame(DaeSMOKE::DaeSolver_Parameters& dae_parameters)
+	{
+		count_video_ = dynamic_boundaries_->n_steps_output();
+
+		dynamic_boundaries_->SetFlame(grid_.L(), P_, n_geometry_);
+		dynamic_boundaries_->SetInitialFuelSide(T_fuel_, v_fuel_, Y_fuel_.data());
+		dynamic_boundaries_->SetInitialOxidizerSide(T_oxidizer_, v_oxidizer_, Y_oxidizer_.data());
+		dynamic_boundaries_->CompleteSetup();
+		dynamic_boundaries_->PrepareOutputFiles();
+		dynamic_boundaries_->Summary(std::cout);
+
+		// Solve first the DAE system
+		for (unsigned int i = 0; i < dynamic_boundaries_->snapshot_list_of_times().size() - 1; i++)
+		{
+			const double tStart = dynamic_boundaries_->snapshot_list_of_times()[i];
+			const double tEnd = dynamic_boundaries_->snapshot_list_of_times()[i+1];
+
+			std::cout << "----------------------------------------------------------"		<< std::endl;
+			std::cout << " Solving dynamics from : " << tStart << " to " << tEnd << " s"    << std::endl;
+			std::cout << "----------------------------------------------------------"		<< std::endl;
+
+			// Check the temperature profile
+			if (is_userdefined_fixed_temperature_profile_ == false)
+				SetType(SIMULATION_TYPE_YTM);
+			else
+				SetType(SIMULATION_TYPE_YM);
+
+			int flag = SolveDAE(dae_parameters, tEnd, tStart);
+
+			// Write current solution
+			if (flag >= 0)
+			{
+				std::stringstream label; label << dynamic_boundaries_->snapshot_list_of_times()[i + 1];
+				std::string name_ascii = "Snapshot." + label.str() + ".out";
+				Print((output_folder_ / name_ascii).string().c_str());
+			}
+		}
+
+		return 1;
+	}
+
+	int OpenSMOKE_CounterFlowFlame1D::SolveHMOMFromExistingSolution(
+										OpenSMOKE::HMOM& hmom,
+										DaeSMOKE::DaeSolver_Parameters& dae_parameters,
+										NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
+										NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters)
 	{
 		// HMOM pointer
 		is_hmom_soot_ = true;
@@ -3352,7 +3987,7 @@ namespace OpenSMOKE
 		// -----------------------------------------------------------------------------------
 		//				                   Memory allocation
 		// -----------------------------------------------------------------------------------
-		
+
 		dhmom_M_over_dx_.resize(grid_.Np());
 		for (int i = 0; i < grid_.Np(); i++)
 			dhmom_M_over_dx_[i].resize(hmom_->n_moments());
@@ -3360,6 +3995,14 @@ namespace OpenSMOKE
 		dhmom_M_over_dt_.resize(grid_.Np());
 		for (int i = 0; i < grid_.Np(); i++)
 			dhmom_M_over_dt_[i].resize(hmom_->n_moments());
+
+		d2hmom_M_over_dx2_.resize(grid_.Np());
+		for (int i = 0; i < grid_.Np(); i++)
+			d2hmom_M_over_dx2_[i].resize(hmom_->n_moments());
+
+		hmom_thermophoresis_.resize(grid_.Np());
+		for (int i = 0; i < grid_.Np(); i++)
+			hmom_thermophoresis_[i].resize(hmom_->n_moments());
 
 		hmom_M_.resize(grid_.Np());
 		for (int i = 0; i < grid_.Np(); i++)
@@ -3377,16 +4020,14 @@ namespace OpenSMOKE
 		std::cout << "----------------------------------------------------------" << std::endl;
 		std::cout << "                       Solving HMOM                       " << std::endl;
 		std::cout << "----------------------------------------------------------" << std::endl;
+		
 		if (hmom_->PAHConsumption() == false)
 		{
 			SetType(SIMULATION_TYPE_HMOM);
 		}
 		else
 		{
-			if (is_fixed_temperature_profile_ == true)
-				SetType(SIMULATION_TYPE_Y_HMOM);
-			else
-				SetType(SIMULATION_TYPE_YT_HMOM);
+			SetType(SIMULATION_TYPE_YT_HMOM);
 		}
 
 		const double tEnd = 10.;
@@ -3410,7 +4051,7 @@ namespace OpenSMOKE
 		return flag;
 	}
 
-	OpenSMOKE::Adapter_Grid1D_Status OpenSMOKE_PremixedLaminarFlame1D::RefineGrid(const unsigned int count)
+	OpenSMOKE::Adapter_Grid1D_Status OpenSMOKE_CounterFlowFlame1D::RefineGrid(const unsigned int count)
 	{
 		OpenSMOKE::Adapter_Grid1D_Status refinement_status;
 
@@ -3419,7 +4060,7 @@ namespace OpenSMOKE
 		std::cout << "                  Grid refinement: " << count               << std::endl;
 		std::cout << "----------------------------------------------------------" << std::endl;
 
-		std::vector<Eigen::VectorXd> phi(thermodynamicsMap_.NumberOfSpecies() + 2);
+		std::vector<Eigen::VectorXd> phi(thermodynamicsMap_.NumberOfSpecies() + 4);
 		for (unsigned int i = 0; i < phi.size(); i++)
 			phi[i].resize(grid_.Np());
 
@@ -3427,25 +4068,19 @@ namespace OpenSMOKE
 		for (int j = 0; j < grid_.Np(); j++)
 			phi[i](j) = Y_[j](i);
 		phi[thermodynamicsMap_.NumberOfSpecies()] = T_;
-		phi[thermodynamicsMap_.NumberOfSpecies() + 1] = m_;
+		phi[thermodynamicsMap_.NumberOfSpecies() + 1] = U_;
+		phi[thermodynamicsMap_.NumberOfSpecies() + 2] = G_;
+		phi[thermodynamicsMap_.NumberOfSpecies() + 3] = H_;
 
 		std::vector<Eigen::VectorXd> phi_new;
 		refinement_status = grid_.Refine(phi, phi_new);
 
 		// If the temperature profile has to be kept fixed, we need to perform
 		// interpolation from the user-defined profile, not from the previous profile
-		if (is_fixed_temperature_profile_ == true && refinement_status != OpenSMOKE::NO_ADDED_POINTS_BECAUSE_CRITERIA_SATISFIED)
+		if (is_userdefined_fixed_temperature_profile_ == true && refinement_status != OpenSMOKE::NO_ADDED_POINTS_BECAUSE_CRITERIA_SATISFIED)
 		{
 			std::cout << "Interpolating temperature from user-defined profile" << std::endl;
-			fixed_temperature_profile_->Interpolate(grid_.x(), phi_new[thermodynamicsMap_.NumberOfSpecies()]);
-		}
-
-		// If the specific mass flow rate profile profile has to be kept fixed, we need to perform
-		// interpolation from the user-defined profile, not from the previous profile
-		if (is_fixed_specific_mass_flow_rate_profile_ == true && refinement_status != OpenSMOKE::NO_ADDED_POINTS_BECAUSE_CRITERIA_SATISFIED)
-		{
-			std::cout << "Interpolating specific mass flow rate profile from user-defined profile" << std::endl;
-			fixed_specific_mass_flow_rate_profile_->Interpolate(grid_.x(), phi_new[thermodynamicsMap_.NumberOfSpecies() + 1]);
+			userdefined_temperature_profile_->Interpolate(grid_.x(), phi_new[thermodynamicsMap_.NumberOfSpecies()]);
 		}
 
 		// In case new points have been added
@@ -3457,14 +4092,14 @@ namespace OpenSMOKE
 		return refinement_status;
 	}
 
-	OpenSMOKE::Adapter_Grid1D_Status OpenSMOKE_PremixedLaminarFlame1D::RefineGrid(const double xA, const double xB, unsigned int count)
+	OpenSMOKE::Adapter_Grid1D_Status OpenSMOKE_CounterFlowFlame1D::RefineGrid(const double xA, const double xB, unsigned int count)
 	{
 		std::cout << std::endl;
 		std::cout << "----------------------------------------------------------" << std::endl;
 		std::cout << "                  Grid refinement (local): " << count       << std::endl;
 		std::cout << "----------------------------------------------------------" << std::endl;
 
-		std::vector<Eigen::VectorXd> phi(thermodynamicsMap_.NumberOfSpecies() + 2);
+		std::vector<Eigen::VectorXd> phi(thermodynamicsMap_.NumberOfSpecies() + 4);
 		for (unsigned int i = 0; i < phi.size(); i++)
 			phi[i].resize(grid_.Np());
 
@@ -3472,7 +4107,9 @@ namespace OpenSMOKE
 		for (int j = 0; j < grid_.Np(); j++)
 			phi[i](j) = Y_[j](i);
 		phi[thermodynamicsMap_.NumberOfSpecies()] = T_;
-		phi[thermodynamicsMap_.NumberOfSpecies() + 1] = m_;
+		phi[thermodynamicsMap_.NumberOfSpecies() + 1] = U_;
+		phi[thermodynamicsMap_.NumberOfSpecies() + 1] = G_;
+		phi[thermodynamicsMap_.NumberOfSpecies() + 1] = H_;
 
 		std::vector<Eigen::VectorXd> phi_new;
 		grid_.Refine(xA, xB, phi, phi_new);
@@ -3481,14 +4118,14 @@ namespace OpenSMOKE
 		return OpenSMOKE::REGRID_SUCCESS;
 	}
 
-	OpenSMOKE::Adapter_Grid1D_Status OpenSMOKE_PremixedLaminarFlame1D::Doubling(unsigned int count)
+	OpenSMOKE::Adapter_Grid1D_Status OpenSMOKE_CounterFlowFlame1D::Doubling(unsigned int count)
 	{
 		std::cout << std::endl;
 		std::cout << "----------------------------------------------------------" << std::endl;
 		std::cout << "                  Grid doubling: " << count << std::endl;
 		std::cout << "----------------------------------------------------------" << std::endl;
 
-		std::vector<Eigen::VectorXd> phi(thermodynamicsMap_.NumberOfSpecies() + 2);
+		std::vector<Eigen::VectorXd> phi(thermodynamicsMap_.NumberOfSpecies() + 4);
 		for (unsigned int i = 0; i < phi.size(); i++)
 			phi[i].resize(grid_.Np());
 
@@ -3496,7 +4133,9 @@ namespace OpenSMOKE
 		for (int j = 0; j < grid_.Np(); j++)
 			phi[i](j) = Y_[j](i);
 		phi[thermodynamicsMap_.NumberOfSpecies()] = T_;
-		phi[thermodynamicsMap_.NumberOfSpecies() + 1] = m_;
+		phi[thermodynamicsMap_.NumberOfSpecies() + 1] = U_;
+		phi[thermodynamicsMap_.NumberOfSpecies() + 2] = G_;
+		phi[thermodynamicsMap_.NumberOfSpecies() + 3] = H_;
 
 		std::vector<Eigen::VectorXd> phi_new;
 		grid_.Double(phi, phi_new);
@@ -3505,160 +4144,39 @@ namespace OpenSMOKE
 		return OpenSMOKE::REGRID_SUCCESS;
 	}
 
-
-	int OpenSMOKE_PremixedLaminarFlame1D::SolveFlameSpeedFromScratch(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
-		NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
-		NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters)
-	{
-		std::ofstream fMonitoring;
-		fMonitoring.open((output_folder_ / "monitoring.out").string().c_str(), std::ios::out);
-		fMonitoring.setf(std::ios::scientific);
-
-		// Initial solution
-		InitialSolutionFlameSpeed(dae_parameters, nls_parameters, false_transient_parameters);
-
-		// Monitoring
-		fMonitoring << grid_.Np() << "\t" << m_(0) / rho_(0)*100. << std::endl;
-
-		// Loop
-		unsigned int max_refinement_attempts_ = 1000;
-		for (unsigned int k = 1; k <= max_refinement_attempts_; k++)
-		{
-			OpenSMOKE::Adapter_Grid1D_Status refinement_status;
-			refinement_status = RefineGrid(k);
-
-
-			if (refinement_status == OpenSMOKE::NO_ADDED_POINTS_BECAUSE_CRITERIA_SATISFIED)
-			{
-				break;
-			}
-			else
-			{
-				// Without energy and mass flow rate
-				FixedTemperatureSolution(dae_parameters, nls_parameters, false_transient_parameters);
-
-				// With energy and mass flow rates
-				CompleteSolution(dae_parameters, nls_parameters, false_transient_parameters);
-			}
-
-			// Update statistics
-			norm();
-
-			// Write current solution
-			{
-				Print((output_folder_ / "Solution.current.out").string().c_str());
-
-				// Polimi soot
-				if (is_polimi_soot_ == true)
-					PrintSoot(output_folder_);
-
-				// On the fly post-processing
-				if (is_on_the_fly_post_processing_ == true)
-					PrintOnTheFlyPostProcessing();
-
-				PrintXMLFile((output_folder_ / "Output.xml").string().c_str());
-			}
-
-			// Monitoring
-			fMonitoring << grid_.Np() << "\t" << m_(0) / rho_(0)*100. << std::endl;
-
-			if (refinement_status == OpenSMOKE::MAXIMUM_NUMBER_POINTS)
-				break;
-		}
-
-		fMonitoring.close();
-
-		// Print final solution
-		{
-			Print((output_folder_ / "Solution.final.out").string().c_str());
-
-			// Polimi soot
-			if (is_polimi_soot_ == true)
-				PrintSoot(output_folder_);
-
-			// On the fly post-processing
-			if (is_on_the_fly_post_processing_ == true)
-				PrintOnTheFlyPostProcessing();
-
-			PrintXMLFile((output_folder_ / "Output.xml").string().c_str());
-		}
-
-		// Sensitivity Analysis
-		if (sensitivity_analysis() == true)
-			SensitivityAnalysis();
-
-		return 1;
-	}
-
-	int OpenSMOKE_PremixedLaminarFlame1D::SolveFlameSpeedFromScratchForOptimization(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
-		NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
-		NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters)
-	{
-		// Initial solution
-		InitialSolutionFlameSpeed(dae_parameters, nls_parameters, false_transient_parameters);
-
-		// Loop
-		unsigned int max_refinement_attempts_ = 1000;
-		for (unsigned int k = 1; k <= max_refinement_attempts_; k++)
-		{
-			OpenSMOKE::Adapter_Grid1D_Status refinement_status;
-			refinement_status = RefineGrid(k);
-
-			if (refinement_status == OpenSMOKE::NO_ADDED_POINTS_BECAUSE_CRITERIA_SATISFIED)
-			{
-				break;
-			}
-			else
-			{
-				// Without energy and mass flow rate
-				FixedTemperatureSolution(dae_parameters, nls_parameters, false_transient_parameters);
-
-				// With energy and mass flow rates
-				CompleteSolution(dae_parameters, nls_parameters, false_transient_parameters);
-			}
-
-			// Update statistics
-			norm();
-
-			if (refinement_status == OpenSMOKE::MAXIMUM_NUMBER_POINTS)
-				break;
-		}
-
-		return 1;
-	}
-
-	int OpenSMOKE_PremixedLaminarFlame1D::SolveBurnerStabilizedFromScratch(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
+	int OpenSMOKE_CounterFlowFlame1D::SolveFlameFromScratch(DaeSMOKE::DaeSolver_Parameters& dae_parameters,
 		NlsSMOKE::NonLinearSolver_Parameters& nls_parameters,
 		NlsSMOKE::FalseTransientSolver_Parameters& false_transient_parameters
 		)
 	{
-		// Initial solution
-		InitialSolutionBurnerStabilized(dae_parameters, nls_parameters, false_transient_parameters);
-
-		// Loop
-		unsigned int max_refinement_attempts_ = 1000;
-		for (unsigned int k = 1; k <= max_refinement_attempts_; k++)
+		if (is_dynamic_boundaries_ == false)
 		{
-			OpenSMOKE::Adapter_Grid1D_Status refinement_status;
-			refinement_status = RefineGrid(k);
+			// Initial solution
+			InitialSolutionCounterFlowDiffusionFlame(dae_parameters, nls_parameters, false_transient_parameters);
 
-			if (refinement_status == OpenSMOKE::NO_ADDED_POINTS_BECAUSE_CRITERIA_SATISFIED)
+			// Loop
+			unsigned int max_refinement_attempts_ = 1000;
+			for (unsigned int k = 1; k <= max_refinement_attempts_; k++)
 			{
-				break;
-			}
-			else
-			{
-				SolveBurnerStabilized(dae_parameters, nls_parameters, false_transient_parameters);
-			}
+				OpenSMOKE::Adapter_Grid1D_Status refinement_status;
+				refinement_status = RefineGrid(k);
 
-			// Update statistics
-			norm();
+				if (refinement_status == OpenSMOKE::NO_ADDED_POINTS_BECAUSE_CRITERIA_SATISFIED)
+				{
+					break;
+				}
+				else
+				{
+					SolveCounterFlowDiffusionFlame(dae_parameters, nls_parameters, false_transient_parameters);
+				}
 
-			// Write current solution
-			{
+				// Update statistics
+				norm();
+
+				// Write current solution
 				Print((output_folder_ / "Solution.current.out").string().c_str());
 
-				// Polimi soot
+				// Write soot summary on file
 				if (is_polimi_soot_ == true)
 					PrintSoot(output_folder_);
 
@@ -3667,17 +4185,15 @@ namespace OpenSMOKE
 					PrintOnTheFlyPostProcessing();
 
 				PrintXMLFile((output_folder_ / "Output.xml").string().c_str());
+
+				if (refinement_status == OpenSMOKE::MAXIMUM_NUMBER_POINTS)
+					break;
 			}
 
-			if (refinement_status == OpenSMOKE::MAXIMUM_NUMBER_POINTS)
-				break;
-		}
-
-		// Print final solution
-		{
+			// Print final solution
 			Print((output_folder_ / "Solution.final.out").string().c_str());
-			
-			// Polimi soot
+
+			// Write soot summary on file
 			if (is_polimi_soot_ == true)
 				PrintSoot(output_folder_);
 
@@ -3686,16 +4202,25 @@ namespace OpenSMOKE
 				PrintOnTheFlyPostProcessing();
 
 			PrintXMLFile((output_folder_ / "Output.xml").string().c_str());
+
+			// Sensitivity Analysis (TODO)
+			if (sensitivity_analysis() == true)
+			{
+				SolveCounterFlowDiffusionFlame(dae_parameters, nls_parameters, false_transient_parameters);
+				SensitivityAnalysis();
+			}
+
 		}
 
-		// Sensitivity Analysis (TODO)
-		if (sensitivity_analysis() == true)
-			SensitivityAnalysis();
+		if (is_dynamic_boundaries_ == true)
+		{
+			SolveDynamicBoundariesCounterFlowDiffusionFlame(dae_parameters);
+		}
 	
 		return 1;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::DiagonalJacobian(const double t, double* y, double* J)
+	void OpenSMOKE_CounterFlowFlame1D::DiagonalJacobian(const double t, double* y, double* J)
 	{
 		// Calculated as suggested by Buzzi (private communication)
 		const double ZERO_DER = std::sqrt(OPENSMOKE_TINY_FLOAT);
@@ -3740,7 +4265,7 @@ namespace OpenSMOKE
 		delete y_plus;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::DiagonalJacobianForIDA(const double alfa, double* J)
+	void OpenSMOKE_CounterFlowFlame1D::DiagonalJacobianForIDA(const double alfa, double* J)
 	{
 		for (int i = 0; i < differential_equations_.size(); i++)
 		{
@@ -3750,14 +4275,16 @@ namespace OpenSMOKE
 	}
 
 	// Atomic analysis
-	void OpenSMOKE_PremixedLaminarFlame1D::AtomicAnalysis()
+	void OpenSMOKE_CounterFlowFlame1D::AtomicAnalysis()
 	{
+		// TODO
+		/*
 		// Inlet stream
 		std::vector<double> sum_inlet(thermodynamicsMap_.elements().size());
 		{
 			double MWmix;
 			aux_Y.CopyFrom(Y_inlet_.data());
-			thermodynamicsMap_.MoleFractions_From_MassFractions(aux_X.GetHandle(), MWmix, aux_Y.GetHandle());
+			thermodynamicsMap_.MoleFractions_From_MassFractions(aux_X, MWmix, aux_Y);
 
 			for (unsigned int j = 0; j < thermodynamicsMap_.elements().size(); j++)
 			{
@@ -3806,10 +4333,13 @@ namespace OpenSMOKE
 
 			std::cout << std::endl;
 		}
+		*/
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::CheckForAdiabaticity()
+	void OpenSMOKE_CounterFlowFlame1D::CheckForAdiabaticity()
 	{
+		// TODO
+		/*
 		// Velocities and kinetic energy
 		const double v_inlet = m_(0) / rho_(0);
 		const double v_outlet = m_(grid_.Ni()) / rho_(grid_.Ni());
@@ -3826,10 +4356,10 @@ namespace OpenSMOKE
 			// Mole fractions and molecular weight
 			double MWmix;
 			aux_Y.CopyFrom(Y_inlet_.data());
-			thermodynamicsMap_.MoleFractions_From_MassFractions(aux_X.GetHandle(), MWmix, aux_Y.GetHandle());
+			thermodynamicsMap_.MoleFractions_From_MassFractions(aux_X, MWmix, aux_Y);
 
 			// Enthalpy [W]
-			H_inlet = thermodynamicsMap_.hMolar_Mixture_From_MoleFractions(aux_X.GetHandle());
+			thermodynamicsMap_.hMolar_Mixture_From_MoleFractions(H_inlet, aux_X);
 			H_inlet *= m_(0)/MWmix;
 		}
 
@@ -3844,7 +4374,7 @@ namespace OpenSMOKE
 			aux_X.CopyFrom(X_[grid_.Ni()].data());
 
 			// Enthalpy [W]
-			H_outlet = thermodynamicsMap_.hMolar_Mixture_From_MoleFractions(aux_X.GetHandle());
+			thermodynamicsMap_.hMolar_Mixture_From_MoleFractions(H_outlet, aux_X);
 			H_outlet *= m_(grid_.Ni()) / mw_(grid_.Ni());
 		}
 
@@ -3897,11 +4427,13 @@ namespace OpenSMOKE
 
 			std::cout << std::endl;
 		}
-
+		*/
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::CheckForInlet()
+	void OpenSMOKE_CounterFlowFlame1D::CheckForInlet()
 	{
+		// TODO
+		/*
 		std::cout << "----------------------------------------------------------" << std::endl;
 		std::cout << std::setw(16) << std::left << "Checking inlet"
 			<< std::setw(16) << std::left << "nominal"
@@ -3925,9 +4457,10 @@ namespace OpenSMOKE
 		}
 
 		std::cout << std::endl;
+		*/
 	}
 
-	OpenSMOKE::Adapter_Grid1D_Status OpenSMOKE_PremixedLaminarFlame1D::Regrid()
+	OpenSMOKE::Adapter_Grid1D_Status OpenSMOKE_CounterFlowFlame1D::Regrid()
 	{
 		if (grid_.Np() > static_cast<int>(grid_.grid_adapter().regrid_points()))
 		{
@@ -3936,7 +4469,7 @@ namespace OpenSMOKE
 			std::cout << "                 Regridding...                            " << std::endl;
 			std::cout << "----------------------------------------------------------" << std::endl;
 
-			std::vector<Eigen::VectorXd> phi(thermodynamicsMap_.NumberOfSpecies() + 2);
+			std::vector<Eigen::VectorXd> phi(thermodynamicsMap_.NumberOfSpecies() + 4);
 			for (unsigned int i = 0; i < phi.size(); i++)
 				phi[i].resize(grid_.Np());
 
@@ -3944,7 +4477,9 @@ namespace OpenSMOKE
 			for (int j = 0; j < grid_.Np(); j++)
 				phi[i](j) = Y_[j](i);
 			phi[thermodynamicsMap_.NumberOfSpecies()] = T_;
-			phi[thermodynamicsMap_.NumberOfSpecies() + 1] = m_;
+			phi[thermodynamicsMap_.NumberOfSpecies() + 1] = U_;
+			phi[thermodynamicsMap_.NumberOfSpecies() + 2] = G_;
+			phi[thermodynamicsMap_.NumberOfSpecies() + 3] = H_;
 
 			std::vector<Eigen::VectorXd> phi_new;
 			grid_.Regrid(thermodynamicsMap_.NumberOfSpecies(), phi, phi_new);
@@ -3958,7 +4493,7 @@ namespace OpenSMOKE
 		return OpenSMOKE::REGRID_SUCCESS;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::norm()
+	void OpenSMOKE_CounterFlowFlame1D::norm()
 	{
 		double* y_ = new double[NumberOfEquations()];
 		double* f_ = new double[NumberOfEquations()];
@@ -3979,164 +4514,68 @@ namespace OpenSMOKE
 		std::cout << " n=" << NumberOfEquations() / BlockDimensions() << std::scientific << "  ||f||=" << norm2 << "  |y'|=" << yp_mean << std::endl;
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::InitializeFromBackupFile(const boost::filesystem::path path_file, const bool use_userdefined_grid)
+	void OpenSMOKE_CounterFlowFlame1D::InitializeFromBackupFile(const boost::filesystem::path path_file)
 	{
 		std::vector<double> x_old;
 		std::vector<double> T_old;
 		std::vector<double> P_old;
-		std::vector<double> m_old;
+		std::vector<double> U_old;
+		std::vector<double> G_old;
+		std::vector<double> H_old;
 		std::vector < std::vector<double> > omega_old;
-		ReadFromBackupFile(path_file, thermodynamicsMap_, x_old, T_old, P_old, m_old, omega_old);
+		ReadFromBackupFile(path_file, thermodynamicsMap_, x_old, T_old, P_old, U_old, G_old, H_old, omega_old);
 
 		// Interpolation (if needed)
-		if (use_userdefined_grid == true)
 		{
-			// Grid: use the user-defined grid
-			{
-				std::cout << " * Building the new mesh from user-defined mesh..." << std::endl;
-
-				std::cout << "   Position of fixed point (mm): " << grid_.x_fixed_point()*1e3 << std::endl;
-				std::cout << "   Index of fixed point:         " << grid_.fixed_point() << "/" << grid_.Np() << std::endl;
-
-				// Only in case of a burner stabilized flame
-				if (solver_type_ == SOLVER_TYPE_BURNERSTABILIZED)
-					grid_.ResetFixedPoint();
-			}
-
-			// Setup 
-			{
-				std::cout << " * Building the first-guess solution from backup data and user-defined mesh..." << std::endl;
-
-				MemoryAllocation();
-
-				// Pressure
-				// The user is free to choose a different pressure (useful to investigate the role of pressure)
-
-				// Profiles
-				{
-					// Memory allocation
-					std::vector<Eigen::VectorXd> v_old(thermodynamicsMap_.NumberOfSpecies() + 1);
-					std::vector<Eigen::VectorXd> v_new(thermodynamicsMap_.NumberOfSpecies() + 1);
-					for (unsigned int i = 0; i < thermodynamicsMap_.NumberOfSpecies() + 1; i++)
-					{
-						v_old[i].resize(x_old.size());
-						v_new[i].resize(grid_.Np());
-					}
-
-					// Construct the input matrix
-					Eigen::VectorXd x_old_(x_old.size());
-					for (unsigned int j = 0; j < x_old.size(); j++)
-					{
-						x_old_(j) = x_old[j];
-						v_old[thermodynamicsMap_.NumberOfSpecies()](j) = T_old[j];
-						for (unsigned int i = 0; i < thermodynamicsMap_.NumberOfSpecies(); i++)
-							v_old[i](j) = omega_old[i][j];
-					}
-
-					// Linear interpolation
-					std::cout << "Linear interpolation from backup mesh to user-defined mesh" << std::endl;
-					linear_interpolation(x_old_, v_old, grid_.x(), v_new);
-
-					// Construct the input matrix
-					for (unsigned int j = 0; j < grid_.Np(); j++)
-					{
-						T_(j) = v_new[thermodynamicsMap_.NumberOfSpecies()](j);
-						for (unsigned int i = 0; i < thermodynamicsMap_.NumberOfSpecies(); i++)
-							Y_[j](i) = v_new[i](j);
-					}
-
-					std::cout << "Interpolated temperature profile on the user-defined mesh" << std::endl;
-					for (unsigned int j = 0; j < grid_.Np(); j++)
-						std::cout << grid_.x()(j) << "\t" << T_(j) << std::endl;
-					std::cout << std::endl;
-				}
-			}
 		}
-		else
+
+		// Grid
 		{
-			// Grid: use the last grid available from the backup file
-			{
-				std::cout << " * Building the new mesh from backup data..." << std::endl;
+			std::cout << " * Building the new mesh from backup data..." << std::endl;
 
-				Eigen::VectorXd x_eigen(x_old.size());
-				std::cout << "   Position of fixed point (mm): " << grid_.x_fixed_point()*1e3 << std::endl;
-				std::cout << "   Index of fixed point:         " << grid_.fixed_point() << "/" << grid_.Np() << std::endl;
+			Eigen::VectorXd x_eigen(x_old.size());
+			std::cout << "   Position of fixed point (mm): " << grid_.x_fixed_point()*1e3 << std::endl;
+		 	std::cout << "   Index of fixed point:         " << grid_.fixed_point() << "/" << grid_.Np() << std::endl;
 
-				// The grid used is the old one
-				for (unsigned int i = 0; i < x_old.size(); i++)
-					x_eigen(i) = x_old[i];
+			// The grid used is the old one
+			for (unsigned int i = 0; i < x_old.size(); i++)
+				x_eigen(i) = x_old[i];
 
-				// Only in case of a burner stabilized flame
-				if (solver_type_ == SOLVER_TYPE_BURNERSTABILIZED)
-					grid_.ResetFixedPoint();
-
-				// Update the grid
-				grid_.Update(x_eigen);
-			}
-
-			// Setup 
-			{
-				std::cout << " * Building the first-guess solution from backup data..." << std::endl;
-
-				MemoryAllocation();
-
-				// Pressure
-				// The user is free to choose a different pressure (useful to investigate the role of pressure)
-
-				// Temperature
-				for (int i = 0; i < grid_.Np(); i++)
-					T_(i) = T_old[i];
-
-				// Composition
-				for (unsigned int i = 0; i < thermodynamicsMap_.NumberOfSpecies(); i++)
-				{
-					for (int j = 0; j < grid_.Np(); j++)
-						Y_[j](i) = omega_old[i][j];
-				}
-			}
+			// Update the grid
+			grid_.ResetFixedPoint();
+			grid_.Update(x_eigen);
 		}
-		
-		// Complete setup
+
+		// Setup 
 		{
-			// First guess mass flow rate (i.e. velocity)
+			std::cout << " * Building the first-guess solution from backup data..." << std::endl;
+
+			MemoryAllocation();
+
+			// Pressure
+			// The user is free to choose a different pressure (useful to investigate the role of pressure)
+
+			// Temperature
+			for (int i = 0; i < grid_.Np(); i++)
+				T_(i) = T_old[i];
+
+			// Momentum equation variables
+			for (int i = 0; i < grid_.Np(); i++)
 			{
-				// Molecular weight
-				aux_Y.CopyFrom(Y_[0].data());
-				thermodynamicsMap_.MoleFractions_From_MassFractions(aux_X.GetHandle(), mw_(0), aux_Y.GetHandle());
+				U_(i) = U_old[i];
+				G_(i) = G_old[i];
+				H_(i) = H_old[i];
+			}
 
-				if (is_virtual_chemistry_ == true)
-				{
-					mw_(0) = virtual_chemistry_->MWMix(aux_Y.GetHandle());
-					virtual_chemistry_->MoleFractions(mw_(0), aux_Y.GetHandle(), aux_X.GetHandle());
-				}
-
-				// Density
-				const double rho = P_*mw_(0) / PhysicalConstants::R_J_kmol / T_inlet_;
-
-				// Mass flow rate 
-				if (solver_type_ == SOLVER_TYPE_BURNERSTABILIZED)
-				{
-					// Velocity is the one provided through the input file
-					m_inlet_ = rho*v_inlet_;
-					m_.setConstant(m_inlet_);
-
-					std::cout << "   Old mass flow rate [kg/m2/s]: " << m_old[0] << std::endl;
-					std::cout << "   New mass flow rate [kg/m2/s]: " << m_inlet_ << std::endl;
-					std::cout << "   Old velocity [cm/s]:          " << (m_old[0] / rho)*100. << std::endl;
-					std::cout << "   New velocity [cm/s]:          " << v_inlet_*100. << std::endl;
-				}
-				else
-				{
-					m_inlet_ = m_old[0];
-					m_.setConstant(m_inlet_);
-					v_inlet_ = m_inlet_ / rho;
-				}
+			// Composition
+			for (unsigned int i = 0; i < thermodynamicsMap_.NumberOfSpecies(); i++)
+			{
+				for (int j = 0; j < grid_.Np(); j++)
+					Y_[j](i) = omega_old[i][j];
 			}
 
 			Properties();
 			DiffusionFluxes();
-
-			fixed_T_ = T_(grid_.fixed_point());
 		}
 
 		// Messages on the screen
@@ -4146,14 +4585,20 @@ namespace OpenSMOKE
 			std::cout << "           Changing the pressure is allowed, but be sure that this is really what you want to do!" << std::endl;
 		}
 
-		if (T_inlet_ != T_old[0])
+		if (T_fuel_ != T_old[0])
 		{
 			std::cout << "* WARNING: The backup temperature was equal to: " << T_old[0] << " K, while the current temperature is: " << T_ << " K" << std::endl;
 			std::cout << "           Changing the temperature is allowed, but be sure that this is really what you want to do!" << std::endl;
 		}
+
+		if (T_oxidizer_ != T_old[grid_.Ni()])
+		{
+			std::cout << "* WARNING: The backup temperature was equal to: " << T_old[grid_.Ni()] << " K, while the current temperature is: " << T_ << " K" << std::endl;
+			std::cout << "           Changing the temperature is allowed, but be sure that this is really what you want to do!" << std::endl;
+		}
 	}
 
-	void OpenSMOKE_PremixedLaminarFlame1D::SparsityPattern(std::vector<unsigned int>& rows, std::vector<unsigned int>& cols)
+	void OpenSMOKE_CounterFlowFlame1D::SparsityPattern(std::vector<unsigned int>& rows, std::vector<unsigned int>& cols)
 	{
 		std::vector<unsigned int> rows_single;
 		std::vector<unsigned int> cols_single;
@@ -4161,7 +4606,70 @@ namespace OpenSMOKE
 		OpenSMOKE::SparsityPatternBlock(NumberOfEquations() / BlockDimensions(), BlockDimensions(), rows_single, cols_single, rows, cols);
 	}
 
-	double OpenSMOKE_PremixedLaminarFlame1D::SutherlandViscosity(const double T)
+	double OpenSMOKE_CounterFlowFlame1D::ReconstructMixtureFraction(const int i)
+	{
+		std::vector<double> y(thermodynamicsMap_.NumberOfSpecies());
+		for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+			y[j] = Y_[i](j);
+
+		std::vector<double> y_fuel;
+		std::vector<std::string> names_fuel;
+		for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+			if (Y_[0][j] > 0.)
+			{
+				y_fuel.push_back(Y_[0][j]);
+				names_fuel.push_back(thermodynamicsMap_.NamesOfSpecies()[j]);
+			}
+
+		std::vector<double> y_oxidizer;
+		std::vector<std::string> names_oxidizer;
+		for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+			if (Y_[grid_.Ni()][j] > 0.)
+			{
+				y_oxidizer.push_back(Y_[grid_.Ni()][j]);
+				names_oxidizer.push_back(thermodynamicsMap_.NamesOfSpecies()[j]);
+			}
+
+		const double csi = thermodynamicsMap_.GetMixtureFractionFromMassFractions(y.data(), names_fuel, y_fuel, names_oxidizer, y_oxidizer);
+		return csi;
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::SootDepositionOnTheWall()
+	{
+		if (is_deposition_wall_ == true)
+		{
+			if (is_polimi_soot_ == true)
+			{
+				if (polimi_soot_analyzer_->thermophoretic_effect() == true)
+				{
+						soot_deposition_ = 0.;	// [kg/m2/s]
+						for (unsigned int jj = 0; jj < polimi_soot_analyzer_->bin_indices().size(); jj++)
+							soot_deposition_ += j_thermophoretic_star_[grid_.Ni()-1](jj);
+				}
+			}
+		}
+	}
+
+	void OpenSMOKE_CounterFlowFlame1D::UpdateBoundaries(const double t)
+	{
+		if (is_dynamic_boundaries_ == true && type_ != Simulation_Type::SIMULATION_TYPE_CSI)
+		{
+			dynamic_boundaries_->UpdateBoundaryConditions(t,	U_fuel_, U_oxidizer_, T_fuel_, T_oxidizer_,
+																rho_fuel_, rho_oxidizer_, 
+																Y_fuel_.data(), Y_oxidizer_.data());
+
+			for (unsigned int j = 0; j < thermodynamicsMap_.NumberOfSpecies(); j++)
+			{
+				boundary_fuel_mass_fractions_(j) = rho_fuel_ * v_fuel_*Y_fuel_(j);
+				boundary_oxidizer_mass_fractions_(j) = -rho_oxidizer_ * v_oxidizer_*Y_oxidizer_(j);
+			}
+
+			v_fuel_ = U_fuel_ / rho_fuel_ * (n_geometry_ - 1.);
+			v_oxidizer_ = -U_oxidizer_/rho_oxidizer_ * (n_geometry_ - 1.);		
+		}
+	}
+
+	double OpenSMOKE_CounterFlowFlame1D::SutherlandViscosity(const double T)
 	{
 		return 1.716e-5*std::pow(T / 273.15, 1.5)*(273.15 + 110.4) / (T + 110.4);	// [kg/m/s]
 	}

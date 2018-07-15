@@ -4,6 +4,7 @@ EXE_INC = \
     -I../../src/ \
     -I../../src/openSMOKEpp4virtualChemistryOptimizer  \
     -I../../src/openSMOKEpp4virtualChemistryOptimizer/premixedlaminarflame1d \
+    -I../../src/openSMOKEpp4virtualChemistryOptimizer/counterflowflame1d \
     -I$(BOOST_LIBRARY_PATH)/include \
     -I$(EIGEN_LIBRARY_PATH) \
     -I$(RAPIDXML_LIBRARY_PATH) \

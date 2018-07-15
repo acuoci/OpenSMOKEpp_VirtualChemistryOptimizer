@@ -24,19 +24,26 @@
 |                                                                         |
 \*-----------------------------------------------------------------------*/
 
-typedef struct 
+typedef struct
 {
+	double  deltat;
 	double* yInitial;
-} *KINSolUserData;
+} *FalseTransient_UserData;
 
-static int kinsol_equations(N_Vector u, N_Vector f, void *user_data)
+static int kinsol_equations_false_transient(N_Vector u, N_Vector f, void *user_data)
 {
 	realtype *pt_y = NV_DATA_S(u);
 	realtype *pt_res = NV_DATA_S(f);
+	FalseTransient_UserData data = (FalseTransient_UserData)user_data;
 
-	flame_premixed->Equations(0., pt_y, pt_res);
+	flame_cfdf->Equations(0., pt_y, pt_res);
+
+	for (int i = 0; i < flame_cfdf->NumberOfEquations(); i++)
+	if (flame_cfdf->id_equations()[i] == true)
+		pt_res[i] = pt_y[i] - data->yInitial[i] - pt_res[i] * data->deltat;
 
 	return 0;
 }
 
-#include "math/native-nls-solvers/interfaces/Band_KinSol.h"
+#include "math/native-nls-solvers/interfaces-false-transient/Band_KinSolFalseTransient.h"
+

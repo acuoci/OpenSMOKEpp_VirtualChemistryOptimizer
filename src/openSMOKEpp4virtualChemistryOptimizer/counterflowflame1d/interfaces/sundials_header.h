@@ -34,35 +34,75 @@
 |                                                                         |
 \*-----------------------------------------------------------------------*/
 
-#ifndef OpenSMOKE_PremixedLaminarFlame1D_Utilities_H
-#define OpenSMOKE_PremixedLaminarFlame1D_Utilities_H
+#include <sunmatrix/sunmatrix_dense.h> /* access to dense SUNMatrix            */
+#include <sunmatrix/sunmatrix_band.h>  /* access to dense SUNMatrix            */
+#include <sunlinsol/sunlinsol_dense.h> /* access to dense SUNLinearSolver      */
+#include <sunlinsol/sunlinsol_band.h>  /* access to band SUNLinearSolver       */
 
-	/**
-	*@brief Reads a solution from a backup file
-	*@param path_file path to the backup file
-	*@param x axial coordinate [m]
-	*@param T temperatures [K]
-	*@param P pressure profile [Pa]
-	*@param m mass flow rate profile [kg/m2/s]
-	*@param omega species mass fractions profiles
-	*@param names_species names of species
-	*/
-	void ReadFromBackupFile(const boost::filesystem::path path_file, std::vector<double>& x, std::vector<double>& T, std::vector<double>& P, 
-							std::vector<double>& m, std::vector< std::vector<double> >& omega, std::vector<std::string>& names_species);
+#include <ida/ida.h>
+#include <ida/ida_direct.h>            /* access to IDADls interface           */
 
-	/**
-	*@brief Reads a solution from a backup file
-	*@param path_file path to the backup file
-	*@param thermodynamicsMap thermodynamic map from which names of species can be extracted
-	*@param x axial coordinate [m]
-	*@param T temperatures [K]
-	*@param P pressure profile [Pa]
-	*@param m mass flow rate profile [kg/m2/s]
-	*@param omega species mass fractions profiles
-	*/
-	void ReadFromBackupFile(const boost::filesystem::path path_file, OpenSMOKE::ThermodynamicsMap_CHEMKIN& thermodynamicsMap,
-							std::vector<double>& x, std::vector<double>& T, std::vector<double>& P, std::vector<double>& m, std::vector< std::vector<double> >& omega);
+#include <kinsol/kinsol.h>
+#include <kinsol/kinsol_direct.h>      /* access to KINDls interface      */
 
-#include "Utilities.hpp"
+#include <nvector/nvector_serial.h>
+#include <sundials/sundials_types.h>
 
-#endif	// OpenSMOKE_PremixedLaminarFlame1D_Utilities_H
+static int check_flag(void *flagvalue, char *funcname, int opt)
+{
+	// 0. Check if SUNDIALS function returned NULL pointer - no memory allocated 
+	if (opt == 0 && flagvalue == NULL) 
+	{
+		fprintf(stderr, "\nSUNDIALS_ERROR: %s() failed - returned NULL pointer\n\n", funcname);
+		return(1);
+	}
+	// 1. Check if flag < 0
+	else if (opt == 1) 
+	{
+		
+		int *errflag = (int *)flagvalue;
+		if (*errflag < 0) 
+		{
+			fprintf(stderr, "\nSUNDIALS_ERROR: %s() failed with flag = %d\n\n", funcname, *errflag);
+			return(1);
+		}
+	}
+	// 2. Check if function returned NULL pointer - no memory allocated
+	else if (opt == 2 && flagvalue == NULL) 
+	{
+		fprintf(stderr, "\nMEMORY_ERROR: %s() failed - returned NULL pointer\n\n", funcname);
+		return(1);
+	}
+
+	return(0);
+}
+
+realtype N_SumAbs(N_Vector x)
+{
+	realtype *xd;
+	xd = NULL;
+
+	long int N = NV_LENGTH_S(x);
+	xd = NV_DATA_S(x);
+
+	realtype sum = 0.;
+	for (long int i = 0; i < N; i++)
+		sum += std::fabs(xd[i]);
+
+	return(sum);
+}
+
+realtype N_Norm2(N_Vector x)
+{
+	realtype *xd;
+	xd = NULL;
+
+	long int N = NV_LENGTH_S(x);
+	xd = NV_DATA_S(x);
+
+	realtype sum = 0.;
+	for (long int i = 0; i < N; i++)
+		sum += xd[i] * xd[i];
+
+	return(std::sqrt(sum));
+}

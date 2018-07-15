@@ -50,7 +50,7 @@ public:
 
 void DaePrint(BzzVector &y, double t)
 {
-	flame->Print(t, y.GetHandle());
+	flame_premixed->Print(t, y.GetHandle());
 }
 
 #include "math/native-dae-solvers/interfaces/TridiagonalBlock_BzzDae.h"

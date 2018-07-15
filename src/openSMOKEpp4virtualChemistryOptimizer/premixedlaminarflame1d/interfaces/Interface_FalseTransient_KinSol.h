@@ -36,10 +36,10 @@ static int kinsol_equations_false_transient(N_Vector u, N_Vector f, void *user_d
 	realtype *pt_res = NV_DATA_S(f);
 	FalseTransient_UserData data = (FalseTransient_UserData)user_data;
 
-	flame->Equations(0., pt_y, pt_res);
+	flame_premixed->Equations(0., pt_y, pt_res);
 
-	for (int i = 0; i < flame->NumberOfEquations(); i++)
-	if (flame->id_equations()[i] == true)
+	for (int i = 0; i < flame_premixed->NumberOfEquations(); i++)
+	if (flame_premixed->id_equations()[i] == true)
 		pt_res[i] = pt_y[i] - data->yInitial[i] - pt_res[i] * data->deltat;
 
 	return 0;
