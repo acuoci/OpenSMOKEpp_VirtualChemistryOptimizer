@@ -437,23 +437,15 @@ int main(int argc, char** argv)
 		
 		// In both cases the local optimizer must be set: nlopt_opt_set_local_optimizer 
 
-		else if (	algorithm == "DIRECT" ||
-					algorithm == "CRS" ||
-					algorithm == "MLSL")
+		else if (	algorithm == "DIRECT" || algorithm == "CRS" ||
+					algorithm == "MLSL" || algorithm == "STOGO" ||
+					algorithm == "ISRES" || algorithm == "ESCH" ||
+					algorithm == "COBYLA" || algorithm == "BOBYQA" ||
+					algorithm == "NEWUOA" || algorithm == "PRAXIS" ||
+					algorithm == "NELDERMEAD" || algorithm == "SBPLX" )
 		{
-			const double f0 = OptFunction(b0);
-
-			double* lb = new double[numP];// lower bounds
-			double* ub = new double[numP];// upper bounds
-			double* x  = new double[numP];// first guess
-			for (unsigned int i = 0; i < numP; i++)
-			{
-				lb[i] = bMin(i);
-				ub[i] = bMax(i);
-				x[i]  = b0(i);
-			}
-
 			nlopt_opt opt;
+			
 			if (algorithm == "DIRECT")
 			{
 				if (variant == "NONE" || variant == "")
@@ -492,13 +484,95 @@ int main(int argc, char** argv)
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for MLSL algorithms: NONE | LDS");
 
-				//nlopt_opt_set_local_optimizer(opt, ;
+				nlopt_opt local_opt;
+				nlopt_create(NLOPT_LN_COBYLA, numP);
+				nlopt_set_min_objective(local_opt, NLOptFunction, NULL);
+				nlopt_set_local_optimizer(opt, local_opt);
+			}
+			else if (algorithm == "STOGO")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_GD_STOGO, numP);
+				else if (variant == "RAND")
+					opt = nlopt_create(NLOPT_GD_STOGO_RAND, numP);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for STOGO algorithms: NONE | RAND");
+			}
+			else if (algorithm == "ISRES")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_GN_ISRES, numP);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for ISRES algorithms: NONE");
+			}
+			else if (algorithm == "ESCH")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_GN_ESCH, numP);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for ESCH algorithms: NONE");
+			}
+			else if (algorithm == "COBYLA")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_LN_COBYLA, numP);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for COBYLA algorithms: NONE");
+			}
+			else if (algorithm == "BOBYQA")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_LN_BOBYQA, numP);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for BOBYQA algorithms: NONE");
+			}
+			else if (algorithm == "NEWUOA")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_LN_NEWUOA_BOUND, numP);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for NEWUOA algorithms: NONE");
+			}
+			else if (algorithm == "PRAXIS")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_LN_PRAXIS, numP);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for PRAXIS algorithms: NONE");
+			}
+			else if (algorithm == "NELDERMEAD")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_LN_NELDERMEAD, numP);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for NELDERMEAD algorithms: NONE");
+			}
+			else if (algorithm == "SBPLX")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_LN_SBPLX, numP);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for SBPLX algorithms: NONE");
+			}
+			
+
+			double* lb = new double[numP];// lower bounds
+			double* ub = new double[numP];// upper bounds
+			double* x = new double[numP];// first guess
+			for (unsigned int i = 0; i < numP; i++)
+			{
+				lb[i] = bMin(i);
+				ub[i] = bMax(i);
+				x[i] = b0(i);
 			}
 
 			nlopt_set_lower_bounds(opt, lb);
 			nlopt_set_upper_bounds(opt, ub);
 			nlopt_set_min_objective(opt, NLOptFunction, NULL);
 			nlopt_set_maxeval(opt, max_eval);
+
+			// Calculates objective function in the starting point
+			const double f0 = OptFunction(b0);
 
 			double fOpt;
 			if (nlopt_optimize(opt, x, &fOpt) < 0)
@@ -526,9 +600,9 @@ int main(int argc, char** argv)
 		}
 		else
 		{
-			OpenSMOKE::FatalErrorMessage("Error @Algorithm option: OpenSMOKEpp-Simplex | LN_COBYLA | GN_DIRECTA | GN_CRS2_LM");
+			OpenSMOKE::FatalErrorMessage("Error @Algorithm option: OpenSMOKEpp-Simplex | DIRECT | CRS | MLSL | STOGO | ISRES | ESCH | COBYLA | BOBYQA |NEWUOA | PRAXIS | NELDERMEAD | SBPLX");
 		}
-		
+
 		fMonitoring.close();
 	}
 

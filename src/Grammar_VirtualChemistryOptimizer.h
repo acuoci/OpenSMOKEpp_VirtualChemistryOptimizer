@@ -114,7 +114,7 @@ namespace OpenSMOKE
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Algorithm",
 				OpenSMOKE::SINGLE_STRING,
-				"Algorithm OpenSMOKEpp-Simplex | DIRECT | CRS | MLSL (default: OpenSMOKEpp-Simplex)",
+				"Algorithm OpenSMOKEpp-Simplex | DIRECT | CRS | MLSL | STOGO | ISRES | ESCH | COBYLA | BOBYQA |NEWUOA | PRAXIS | NELDERMEAD | SBPLX (default: OpenSMOKEpp-Simplex)",
 				true));
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Variant",
