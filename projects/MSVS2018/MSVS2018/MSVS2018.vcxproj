@@ -19,6 +19,10 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\..\src\counterflow-1dflame\CounterFlow1DFlameExperiment.h" />
+    <ClInclude Include="..\..\..\src\counterflow-1dflame\CounterFlow1DFlameExperiment.hpp" />
+    <ClInclude Include="..\..\..\src\counterflow-1dflame\Grammar_CounterFlow1DFlameExperiment.h" />
+    <ClInclude Include="..\..\..\src\counterflow-1dflame\OptimizationRules_CounterFlow1DFlame.h" />
     <ClInclude Include="..\..\..\src\Grammar_VirtualChemistryOptimizer.h" />
     <ClInclude Include="..\..\..\src\pfr\Grammar_PlugFlowReactorExperiment.h" />
     <ClInclude Include="..\..\..\src\pfr\OptimizationRules_PlugFlowReactor.h" />
@@ -86,10 +90,10 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>C:\Development\OpenSMOKEpp\OpenSMOKEpp\source;C:\Development\ExternalNumericalLibraries\Boost\boost_1_65_1;C:\Development\ExternalNumericalLibraries\Eigen\Eigen3.3;C:\Development\ExternalNumericalLibraries\RapidXML\rapidxml-1.13;C:\Development\ExternalNumericalLibraries\NLopt\nlopt-2.4.2-dll64;C:\Development\OpenSMOKEpp\OpenSMOKEppSolvers\src\premixedlaminarflame1d;$(IncludePath)</IncludePath>
+    <IncludePath>C:\Development\OpenSMOKEpp\OpenSMOKEpp\source;C:\Development\ExternalNumericalLibraries\Boost\boost_1_65_1;C:\Development\ExternalNumericalLibraries\Eigen\Eigen3.3;C:\Development\ExternalNumericalLibraries\RapidXML\rapidxml-1.13;C:\Development\ExternalNumericalLibraries\NLopt\nlopt-2.4.2-dll64;C:\Development\OpenSMOKEpp\OpenSMOKEppSolvers\src\premixedlaminarflame1d;C:\Development\OpenSMOKEpp\OpenSMOKEppSolvers\src\counterflowflame1d;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>C:\Development\OpenSMOKEpp\OpenSMOKEpp\source;C:\Development\ExternalNumericalLibraries\Boost\boost_1_65_1;C:\Development\ExternalNumericalLibraries\Eigen\Eigen3.3;C:\Development\ExternalNumericalLibraries\RapidXML\rapidxml-1.13;$(IncludePath)</IncludePath>
+    <IncludePath>C:\Development\OpenSMOKEpp\OpenSMOKEpp\source;C:\Development\ExternalNumericalLibraries\Boost\boost_1_65_1;C:\Development\ExternalNumericalLibraries\Eigen\Eigen3.3;C:\Development\ExternalNumericalLibraries\RapidXML\rapidxml-1.13;C:\Development\OpenSMOKEpp\OpenSMOKEppSolvers\src\counterflowflame1d;C:\Development\OpenSMOKEpp\OpenSMOKEppSolvers\src\premixedlaminarflame1d;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>

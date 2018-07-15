@@ -19,6 +19,9 @@
     <Filter Include="Source Files\premixed-1dflame">
       <UniqueIdentifier>{27ec7a92-80e1-47cc-9d8e-45641adc900b}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\counterflow-1dflame">
+      <UniqueIdentifier>{91bb0a04-722c-4dbb-b855-ebfe32a73601}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\src\Grammar_VirtualChemistryOptimizer.h">
@@ -47,6 +50,18 @@
     </ClInclude>
     <ClInclude Include="..\..\..\src\premixed-1dflame\OptimizationRules_Premixed1DFlame.h">
       <Filter>Source Files\premixed-1dflame</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\src\counterflow-1dflame\CounterFlow1DFlameExperiment.h">
+      <Filter>Source Files\counterflow-1dflame</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\src\counterflow-1dflame\CounterFlow1DFlameExperiment.hpp">
+      <Filter>Source Files\counterflow-1dflame</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\src\counterflow-1dflame\Grammar_CounterFlow1DFlameExperiment.h">
+      <Filter>Source Files\counterflow-1dflame</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\src\counterflow-1dflame\OptimizationRules_CounterFlow1DFlame.h">
+      <Filter>Source Files\counterflow-1dflame</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
