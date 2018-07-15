@@ -34,12 +34,12 @@
 |                                                                         |
 \*-----------------------------------------------------------------------*/
 
-#ifndef OpenSMOKE_OptimizationRules_Premixed1DFlame_H
-#define OpenSMOKE_OptimizationRules_Premixed1DFlame_H
+#ifndef OpenSMOKE_OptimizationRules_CounterFlow1DFlame_H
+#define OpenSMOKE_OptimizationRules_CounterFlow1DFlame_H
 
 namespace OpenSMOKE
 {
-	class Grammar_OptimizationRules_Premixed1DFlame : public OpenSMOKE::OpenSMOKE_DictionaryGrammar
+	class Grammar_OptimizationRules_CounterFlow1DFlame : public OpenSMOKE::OpenSMOKE_DictionaryGrammar
 	{
 	protected:
 
@@ -48,11 +48,6 @@ namespace OpenSMOKE
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Temperature",
 				OpenSMOKE::SINGLE_BOOL,
 				"True if temperature has to be optimized (default: true)",
-				true));
-
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Velocity",
-				OpenSMOKE::SINGLE_BOOL,
-				"True if velocity has to be optimized (default: true)",
 				true));
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Species",
@@ -69,15 +64,10 @@ namespace OpenSMOKE
 				OpenSMOKE::SINGLE_DICTIONARY,
 				"Name of the dictionary containing the temperature profile",
 				false));
-
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@VelocityProfile",
-				OpenSMOKE::SINGLE_DICTIONARY,
-				"Name of the dictionary containing the velocity profile",
-				false));
 		}
 	};
 
-	class OptimizationRules_Premixed1DFlame
+	class OptimizationRules_CounterFlow1DFlame
 	{
 	public:
 
@@ -99,16 +89,7 @@ namespace OpenSMOKE
 		double t_mean_y() const { return t_mean_y_; }
 		double t_max_y() const { return t_y_.maxCoeff(); }
 
-		unsigned int u_np() const { return u_np_; }
-		double u_x(const unsigned int i) const { return u_x_(i); }
-		double u_y(const unsigned int i) const { return u_y_(i); }
-		const Eigen::VectorXd& u_x() const { return u_x_; }
-		const Eigen::VectorXd& u_y() const { return u_y_; }
-		double u_mean_y() const { return u_mean_y_; }
-		double u_max_y() const { return u_y_.maxCoeff(); }
-
 		bool is_temperature() const { return is_temperature_; }
-		bool is_velocity() const { return is_velocity_; }
 		bool is_species() const { return is_species_; }
 		std::string species_name() const { return species_name_; }
 
@@ -124,20 +105,14 @@ namespace OpenSMOKE
 		Eigen::VectorXd t_y_;
 		double t_mean_y_;
 
-		unsigned int u_np_;
-		Eigen::VectorXd u_x_;
-		Eigen::VectorXd u_y_;
-		double u_mean_y_;
-
 		bool is_temperature_;
-		bool is_velocity_;
 		bool is_species_;
 		std::string species_name_;
 	};
 
-	void OptimizationRules_Premixed1DFlame::SetupFromDictionary(OpenSMOKE::OpenSMOKE_Dictionary& dictionary, OpenSMOKE::OpenSMOKE_DictionaryManager& dictionaries)
+	void OptimizationRules_CounterFlow1DFlame::SetupFromDictionary(OpenSMOKE::OpenSMOKE_Dictionary& dictionary, OpenSMOKE::OpenSMOKE_DictionaryManager& dictionaries)
 	{
-		Grammar_OptimizationRules_Premixed1DFlame grammar;
+		Grammar_OptimizationRules_CounterFlow1DFlame grammar;
 		dictionary.SetGrammar(grammar);
 
 		is_species_ = false;
@@ -147,9 +122,6 @@ namespace OpenSMOKE
 
 		if (dictionary.CheckOption("@Temperature") == true)
 			dictionary.ReadBool("@Temperature", is_temperature_);
-
-		if (dictionary.CheckOption("@Velocity") == true)
-			dictionary.ReadBool("@Velocity", is_velocity_);
 
 		if (dictionary.CheckOption("@SpeciesProfile") == true)
 		{
@@ -194,30 +166,7 @@ namespace OpenSMOKE
 			}
 			t_mean_y_ /= static_cast<double>(t_np_);
 		}
-
-
-		if (dictionary.CheckOption("@VelocityProfile") == true)
-		{
-			std::string name_of_subdictionary;
-			dictionary.ReadDictionary("@VelocityProfile", name_of_subdictionary);
-
-			OpenSMOKE::OpenSMOKEVectorDouble x, y;
-			std::string x_variable, y_variable;
-			GetXYProfileFromDictionary(dictionaries(name_of_subdictionary), x, y, x_variable, y_variable);
-
-			u_np_ = x.Size();
-			u_x_.resize(u_np_);
-			u_y_.resize(u_np_);
-			u_mean_y_ = 0.;
-			for (unsigned int i = 0; i < u_np_; i++)
-			{
-				u_x_(i) = x[i + 1];
-				u_y_(i) = y[i + 1];
-				u_mean_y_ += u_y_(i);
-			}
-			u_mean_y_ /= static_cast<double>(u_np_);
-		}
 	}
 }
 
-#endif // OpenSMOKE_OptimizationRules_Premixed1DFlame_H
+#endif // OpenSMOKE_OptimizationRules_CounterFlow1DFlame_H

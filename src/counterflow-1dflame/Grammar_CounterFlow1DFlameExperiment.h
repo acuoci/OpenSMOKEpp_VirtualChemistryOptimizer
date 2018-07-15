@@ -30,7 +30,7 @@
 
 namespace OpenSMOKE
 {
-	class Grammar_Premixed1DFlameExperiment : public OpenSMOKE::OpenSMOKE_DictionaryGrammar
+	class Grammar_CounterFlow1DFlameExperiment : public OpenSMOKE::OpenSMOKE_DictionaryGrammar
 	{
 	protected:
 
@@ -46,14 +46,9 @@ namespace OpenSMOKE
 				"Name of backup file (XML Version)",
 				false));
 
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@DontUseBackupGrid",
-				OpenSMOKE::SINGLE_BOOL,
-				"If true, the user defined grid is used, instead of the grid corresponding to the backup file (default:false)",
-				false));
-
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Type",
 				OpenSMOKE::SINGLE_STRING,
-				"Type of simulation: BurnerStabilized | FlameSpeed",
+				"Type of simulation: CounterFlowDiffusion | BurnerStabilizedStagnation",
 				true));
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Grid",
@@ -61,19 +56,29 @@ namespace OpenSMOKE
 				"Name of the dictionary defining the mesh",
 				true));
 
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@InletStream",
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@FuelStream",
 				OpenSMOKE::VECTOR_STRING,
-				"Name of the dictionary/dictionaries defining the inlet gas composition, temperature and pressure",
+				"Name of the dictionary/dictionaries defining the fuel stream composition, temperature and pressure",
 				true));
 
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@OutletStream",
-				OpenSMOKE::SINGLE_DICTIONARY,
-				"Name of the dictionary defining the outlet gas composition, temperature and pressure (this is only for initialization)",
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@OxidizerStream",
+				OpenSMOKE::VECTOR_STRING,
+				"Name of the dictionary/dictionaries defining the oxidizer stream composition, temperature and pressure",
 				true));
 
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@InletVelocity",
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@PeakMixture",
+				OpenSMOKE::VECTOR_STRING,
+				"Name of the dictionary/dictionaries defining the peak mixture composition, temperature and pressure",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@FuelVelocity",
 				OpenSMOKE::SINGLE_MEASURE,
-				"Inlet velocity (i.e. flame speed): first guess",
+				"Fuel stream velocity",
+				true));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@OxidizerVelocity",
+				OpenSMOKE::SINGLE_MEASURE,
+				"Oxidizer stream velocity",
 				true));
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@SensitivityAnalysis",
@@ -101,14 +106,14 @@ namespace OpenSMOKE
 				"Name of the folder where to write the output files",
 				true));
 
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@UseNlsSolver",
-				OpenSMOKE::SINGLE_BOOL,
-				"Use the NLS solver to solve the steady state problems, after the DAE solver (default: true)",
-				false));
-
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@UseDaeSolver",
 				OpenSMOKE::SINGLE_BOOL,
 				"Use the Dae solver (instead of NLS) to solve the steady state problems (default: true)",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@UseNlsSolver",
+				OpenSMOKE::SINGLE_BOOL,
+				"Use the NLS solver to solve the steady state problems, after the DAE solver (default: true)",
 				false));
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@PolimiSoot",
@@ -121,19 +126,14 @@ namespace OpenSMOKE
 				"Name of the dictionary defining the rules for applying the Hybrid Method of Moments (HMOM)",
 				false));
 
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@OnTheFlyPostProcessing",
-				OpenSMOKE::SINGLE_DICTIONARY,
-				"Dictionary specifying the details for carrying out the post-processing analyses (on the fly)",
-				false));
-
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@FixedTemperatureProfile",
 				OpenSMOKE::SINGLE_DICTIONARY,
-				"Name of dictionary describing the temperature profile",
+				"Name of dictionary describing the fixed temperature profile",
 				false));
 
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@FixedSpecificMassFlowRateProfile",
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@InitialTemperatureProfile",
 				OpenSMOKE::SINGLE_DICTIONARY,
-				"Name of dictionary describing the specific (i.e. per unit area) mass flow rate profile",
+				"Name of dictionary describing the initial temperature profile",
 				false));
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Soret",
@@ -151,6 +151,56 @@ namespace OpenSMOKE
 				"Estimation of mass diffusion coefficients through the species bundling according the the specified maximum relative error (example: @SpeciesBundling 0.1)",
 				false));
 
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@InitialProfiles",
+				OpenSMOKE::SINGLE_STRING,
+				"Type of initial profiles for species and temperature: triangular | linear (default) | plateau",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@PeakPosition",
+				OpenSMOKE::SINGLE_MEASURE,
+				"Position of peak of temperature (if not provided it will be assumed equal to the position of the stagnation plane)",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@MixingZoneWidth",
+				OpenSMOKE::SINGLE_MEASURE,
+				"Width of the mixing zone",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@EigenValueStartingGuess",
+				OpenSMOKE::SINGLE_MEASURE,
+				"Starting guess value for the eigen value: default -100 kg/m3/s2",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@RadialGradientFuelSide",
+				OpenSMOKE::SINGLE_MEASURE,
+				"Radial gradient on the fuel side: default 0 1/s",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@RadialGradientOxidizerSide",
+				OpenSMOKE::SINGLE_MEASURE,
+				"Radial gradient on the oxidizer side: default 0 1/s",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@PlanarSymmetry",
+				OpenSMOKE::SINGLE_BOOL,
+				"Planar symmetry: default false (i.e. cylyndrical symmetry)",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@GasReactionRateMultiplier",
+				OpenSMOKE::SINGLE_DOUBLE,
+				"Optional multiplying factor applied to all the reaction rates (default is 1)",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@LewisNumbers",
+				OpenSMOKE::SINGLE_DICTIONARY,
+				"Name of dictionary containing the list of Lewis numbers of species",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@OnTheFlyPostProcessing",
+				OpenSMOKE::SINGLE_DICTIONARY,
+				"Dictionary specifying the details for carrying out the post-processing analyses (on the fly)",
+				false));
+
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Radiation",
 				OpenSMOKE::SINGLE_BOOL,
 				"Radiative heat transfer (default: none)",
@@ -161,20 +211,18 @@ namespace OpenSMOKE
 				"Environment temperature (default: 298.15 K)",
 				false));
 
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@DerivativeGasMassFractions",
-				OpenSMOKE::SINGLE_STRING,
-				"Derivative gas mass fractions (default: backward)",
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@DepositionWall",
+				OpenSMOKE::SINGLE_BOOL,
+				"Deposition wall for burner stabilized stagnation flames",
 				false));
 
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@DerivativeGasTemperature",
-				OpenSMOKE::SINGLE_STRING,
-				"Derivative gas temperature (default: backward)",
-				false));
-
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@LewisNumbers",
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@DynamicBoundaries",
 				OpenSMOKE::SINGLE_DICTIONARY,
-				"Name of dictionary containing the list of Lewis numbers of species",
-				false));
+				"Dictionary containing the definition of dynamic boundaries",
+				false,
+				"none",
+				"@Backup",
+				"none"));
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@VirtualChemistry",
 				OpenSMOKE::SINGLE_DICTIONARY,

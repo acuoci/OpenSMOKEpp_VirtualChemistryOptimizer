@@ -34,81 +34,76 @@
 |                                                                         |
 \*-----------------------------------------------------------------------*/
 
-#ifndef OpenSMOKE_OptimizationRules_PlugFlowReactor_H
-#define OpenSMOKE_OptimizationRules_PlugFlowReactor_H
+#ifndef OpenSMOKE_CounterFlow1DFlameExperiment_H
+#define OpenSMOKE_CounterFlow1DFlameExperiment_H
+
+// Utilities
+#include "idealreactors/utilities/Utilities"
+#include "utilities/ropa/OnTheFlyROPA.h"
+#include "utilities/ontheflypostprocessing/OnTheFlyPostProcessing.h"
+#include "utilities/Utilities.h"
+#include "idealreactors/utilities/Grammar_LewisNumbers.h"
+
+// 1D grid
+#include "utilities/grids/adaptive/Grid1D.h"
+#include "utilities/grids/adaptive/Grammar_Grid1D.h"
+#include "utilities/grids/adaptive/Adapter_Grid1D.h"
+
+// Hybrid Method of Moments
+#include "utilities/soot/hmom/HMOM.h"
+
+#include "OptimizationRules_CounterFlow1DFlame.h"
+#include "Grammar_CounterFlow1DFlameExperiment.h"
+#include "OpenSMOKE_CounterFlowFlame1D.h"
+
 
 namespace OpenSMOKE
 {
-	class Grammar_OptimizationRules_PlugFlowReactor : public OpenSMOKE::OpenSMOKE_DictionaryGrammar
-	{
-	protected:
-
-		virtual void DefineRules()
-		{
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Species",
-				OpenSMOKE::SINGLE_STRING,
-				"Name of the species to be optimized",
-				true));
-
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Profile",
-				OpenSMOKE::SINGLE_DICTIONARY,
-				"Name of the dictionary containing the profile",
-				true));
-		}
-	};
-
-	class OptimizationRules_PlugFlowReactor
+	class CounterFlow1DFlameExperiment
 	{
 	public:
 
-		void SetupFromDictionary(OpenSMOKE::OpenSMOKE_Dictionary& dictionary, OpenSMOKE::OpenSMOKE_DictionaryManager& dictionaries);
+		void Setup(const std::string input_file_name,
+			OpenSMOKE::ThermodynamicsMap_CHEMKIN*		thermodynamicsMapXML,
+			OpenSMOKE::KineticsMap_CHEMKIN*				kineticsMapXML,
+			OpenSMOKE::TransportPropertiesMap_CHEMKIN*	transportMapXML,
+			OpenSMOKE::VirtualChemistry*				virtual_chemistry);
 
-		unsigned int np() const { return np_; }
-		double x(const unsigned int i) const { return x_(i); }
-		double y(const unsigned int i) const { return y_(i); }
-		double mean_y() const { return mean_y_; }
-		double max_y() const { return y_.maxCoeff(); }
-		std::string species_name() const { return species_name_; }
+		void Solve(const bool verbose = false);
+
+		double norm2_abs_error() const { return norm2_abs_error_; }
+		double norm2_rel_error() const { return norm2_rel_error_; }
+
+		const OpenSMOKE::OptimizationRules_CounterFlow1DFlame* optimization() const { return optimization_; }
 
 	private:
 
-		unsigned int np_;
-		Eigen::VectorXd x_;
-		Eigen::VectorXd y_;
-		double mean_y_;
-		std::string species_name_;
+		// Read thermodynamics and kinetics maps
+		OpenSMOKE::ThermodynamicsMap_CHEMKIN*		thermodynamicsMapXML_;
+		OpenSMOKE::KineticsMap_CHEMKIN*				kineticsMapXML_;
+		OpenSMOKE::TransportPropertiesMap_CHEMKIN*	transportMapXML_;
+
+		OpenSMOKE::OptimizationRules_CounterFlow1DFlame*	optimization_;
+		DaeSMOKE::DaeSolver_Parameters*					dae_parameters;
+		NlsSMOKE::NonLinearSolver_Parameters*			nls_parameters;
+		NlsSMOKE::FalseTransientSolver_Parameters*		false_transient_parameters;
+
+		OpenSMOKE::SensitivityAnalysis_Options* sensitivity_options;
+		OpenSMOKE::Grid1D* grid;
+		OpenSMOKE::PolimiSoot_Analyzer* polimi_soot;
+		OpenSMOKE::OnTheFlyPostProcessing* on_the_fly_post_processing;
+		OpenSMOKE::HMOM* hmom;
+		OpenSMOKE::DynamicBoundaries* dynamic_boundaries;
+
+		OpenSMOKE::VirtualChemistry*			virtual_chemistry_;
+
+		double end_value_;
+
+		double norm2_abs_error_;
+		double norm2_rel_error_;
 	};
-
-	void OptimizationRules_PlugFlowReactor::SetupFromDictionary(OpenSMOKE::OpenSMOKE_Dictionary& dictionary, OpenSMOKE::OpenSMOKE_DictionaryManager& dictionaries)
-	{
-		Grammar_OptimizationRules_PlugFlowReactor grammar;
-		dictionary.SetGrammar(grammar);
-
-		if (dictionary.CheckOption("@Species") == true)
-			dictionary.ReadString("@Species", species_name_);
-
-		if (dictionary.CheckOption("@Profile") == true)
-		{
-			std::string name_of_subdictionary;
-			dictionary.ReadDictionary("@Profile", name_of_subdictionary);
-
-			OpenSMOKE::OpenSMOKEVectorDouble x, y;
-			std::string x_variable, y_variable;
-			GetXYProfileFromDictionary(dictionaries(name_of_subdictionary), x, y, x_variable, y_variable);
-
-			np_ = x.Size();
-			x_.resize(np_);
-			y_.resize(np_);
-			mean_y_ = 0.;
-			for (unsigned int i = 0; i < np_; i++)
-			{
-				x_(i) = x[i + 1];
-				y_(i) = y[i + 1];
-				mean_y_ += y_(i);
-			}
-			mean_y_ /= static_cast<double>(np_);
-		}
-	}
 }
 
-#endif // OpenSMOKE_OptimizationRules_PlugFlowReactor_H
+#include "CounterFlow1DFlameExperiment.hpp"
+
+#endif // OpenSMOKE_CounterFlow1DFlameExperiment_H

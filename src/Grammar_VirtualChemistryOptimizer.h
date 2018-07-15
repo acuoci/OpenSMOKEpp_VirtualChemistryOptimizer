@@ -57,10 +57,20 @@ namespace OpenSMOKE
 				"Name of the dictionary defining the rules for applying the Virtual Chemistry (VC)",
 				true));
 
-			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@ListOfExperiments",
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@ListOfExperiments_PremixedFlames",
 				OpenSMOKE::VECTOR_STRING,
-				"List of input files for experiments",
-				true));
+				"List of input files for experiments: premixed 1D flames",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@ListOfExperiments_CounterFlowFlames",
+				OpenSMOKE::VECTOR_STRING,
+				"List of input files for experiments: counterflow 1D flames",
+				false));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@ListOfExperiments_PlugFlowReactors",
+				OpenSMOKE::VECTOR_STRING,
+				"List of input files for experiments: plugflow reactors",
+				false));
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@ListOfParameters",
 				OpenSMOKE::VECTOR_INT,
@@ -104,7 +114,12 @@ namespace OpenSMOKE
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Algorithm",
 				OpenSMOKE::SINGLE_STRING,
-				"Algorithm OpenSMOKEpp-Simplex | LN_COBYLA | GN_DIRECTA | GN_CRS2_LM (default: OpenSMOKEpp-Simplex)",
+				"Algorithm OpenSMOKEpp-Simplex | DIRECT | CRS | MLSL (default: OpenSMOKEpp-Simplex)",
+				true));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Variant",
+				OpenSMOKE::SINGLE_STRING,
+				"Algorithm variant (default: none)",
 				true));
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@OptimizationTarget",

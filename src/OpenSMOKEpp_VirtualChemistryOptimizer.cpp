@@ -57,6 +57,7 @@
 // Reactors/Flames
 #include "pfr/PlugFlowReactorExperiment.h"
 #include "premixed-1dflame/Premixed1DFlameExperiment.h"
+#include "counterflow-1dflame/CounterFlow1DFlameExperiment.h"
 
 
 void FromMinimizationParametersToRealParameters(const Eigen::VectorXd& b, Eigen::VectorXd& parameters, const std::vector<bool>& flag);
@@ -68,15 +69,19 @@ double NLOptFunction(unsigned n, const double *x, double *grad, void *my_func_da
 
 OpenSMOKE::VirtualChemistry* virtual_chemistry;
 OpenSMOKE::PlugFlowReactorExperiment* plugs;
-OpenSMOKE::Premixed1DFlameExperiment* flames;
+OpenSMOKE::Premixed1DFlameExperiment* premixed_flames;
+OpenSMOKE::CounterFlow1DFlameExperiment* counterflow_flames;
 
 const double Rgas = 1987.;
 std::vector<bool> flag;
-unsigned int nExp;
+
+std::vector<std::string> list_of_experiments_premixed_flames;
+std::vector<std::string> list_of_experiments_plugflow_reactors;
+std::vector<std::string> list_of_experiments_counterflow_flames;
+
 bool obj_function_relative_errors;
 
 int numP;
-const bool experiments_plugs = false;
 std::string optimization_target;
 
 double fobj_rel_best;
@@ -210,49 +215,40 @@ int main(int argc, char** argv)
 	}
 
 	// List of experiments
-	std::vector<std::string> list_of_experiments;
-	if (dictionaries(main_dictionary_name_).CheckOption("@ListOfExperiments") == true)
-	{
-		dictionaries(main_dictionary_name_).ReadOption("@ListOfExperiments", list_of_experiments);
-	}
+	if (dictionaries(main_dictionary_name_).CheckOption("@ListOfExperiments_PremixedFlames") == true)
+		dictionaries(main_dictionary_name_).ReadOption("@ListOfExperiments_PremixedFlames", list_of_experiments_premixed_flames);
+	
+	if (dictionaries(main_dictionary_name_).CheckOption("@ListOfExperiments_CounterFlowFlames") == true)
+		dictionaries(main_dictionary_name_).ReadOption("@ListOfExperiments_CounterFlowFlames", list_of_experiments_counterflow_flames);
+	
+	if (dictionaries(main_dictionary_name_).CheckOption("@ListOfExperiments_PlugFlowReactors") == true)
+		dictionaries(main_dictionary_name_).ReadOption("@ListOfExperiments_PlugFlowReactors", list_of_experiments_plugflow_reactors);
 
 	// List of optimization parameters
 	std::vector<int> list_of_parameters;
 	if (dictionaries(main_dictionary_name_).CheckOption("@ListOfParameters") == true)
-	{
 		dictionaries(main_dictionary_name_).ReadOption("@ListOfParameters", list_of_parameters);
-	}
 
 	// List of optimization parameters
 	std::vector<double> list_of_first_guess;
 	if (dictionaries(main_dictionary_name_).CheckOption("@ListOfFirstGuess") == true)
-	{
 		dictionaries(main_dictionary_name_).ReadOption("@ListOfFirstGuess", list_of_first_guess);
-	}
 
 	// List of relative minima
 	if (dictionaries(main_dictionary_name_).CheckOption("@ListOfRelativeMinima") == true)
-	{
 		dictionaries(main_dictionary_name_).ReadOption("@ListOfRelativeMinima", list_of_relative_minima);
-	}
 
 	// List of absolute minima
 	if (dictionaries(main_dictionary_name_).CheckOption("@ListOfAbsoluteMinima") == true)
-	{
 		dictionaries(main_dictionary_name_).ReadOption("@ListOfAbsoluteMinima", list_of_absolute_minima);
-	}
 
 	// List of relative maxima
 	if (dictionaries(main_dictionary_name_).CheckOption("@ListOfRelativeMaxima") == true)
-	{
 		dictionaries(main_dictionary_name_).ReadOption("@ListOfRelativeMaxima", list_of_relative_maxima);
-	}
 
 	// List of absolute maxima
 	if (dictionaries(main_dictionary_name_).CheckOption("@ListOfAbsoluteMaxima") == true)
-	{
 		dictionaries(main_dictionary_name_).ReadOption("@ListOfAbsoluteMaxima", list_of_absolute_maxima);
-	}
 
 	// Objective function on relative errors
 	obj_function_relative_errors = true;
@@ -264,35 +260,42 @@ int main(int argc, char** argv)
 	if (dictionaries(main_dictionary_name_).CheckOption("@Algorithm") == true)
 		dictionaries(main_dictionary_name_).ReadString("@Algorithm", algorithm);
 
-	// OMax number iterations
+	// Variant
+	std::string variant = "";
+	if (dictionaries(main_dictionary_name_).CheckOption("@Variant") == true)
+		dictionaries(main_dictionary_name_).ReadString("@Variant", variant);
+
+	// Max number iterations
 	int max_eval = 1000000;
 	if (dictionaries(main_dictionary_name_).CheckOption("@MaxIterations") == true)
 		dictionaries(main_dictionary_name_).ReadInt("@MaxIterations", max_eval);
 
 	// Experiments
-	nExp = list_of_experiments.size();
-	if (experiments_plugs == false)	// Optimization (1D flames)
+
+	// Create premixed 1Dflames
+	premixed_flames = new OpenSMOKE::Premixed1DFlameExperiment[list_of_experiments_premixed_flames.size()];
+	for (unsigned int k = 0; k < list_of_experiments_premixed_flames.size(); k++)
 	{
-		// Create 1Dflames
-		flames = new OpenSMOKE::Premixed1DFlameExperiment[nExp];
-		for (unsigned int k = 0; k < nExp; k++)
-		{
-			flames[k].Setup(list_of_experiments[k], thermodynamicsMapXML, kineticsMapXML, transportMapXML, virtual_chemistry);
-			flames[k].Solve(true);
-		}
-	}
-	else // Optimization (plug flows)
-	{
-		nExp = list_of_experiments.size();
-		plugs = new OpenSMOKE::PlugFlowReactorExperiment[nExp];
-		for (unsigned int k = 0; k < nExp; k++)
-		{
-			plugs[k].Setup(list_of_experiments[k], thermodynamicsMapXML, kineticsMapXML, virtual_chemistry);
-			plugs[k].Solve(true);
-		}
+		premixed_flames[k].Setup(list_of_experiments_premixed_flames[k], thermodynamicsMapXML, kineticsMapXML, transportMapXML, virtual_chemistry);
+		premixed_flames[k].Solve(true);
 	}
 
-	//
+	// Create counterflow 1Dflames
+	counterflow_flames = new OpenSMOKE::CounterFlow1DFlameExperiment[list_of_experiments_counterflow_flames.size()];
+	for (unsigned int k = 0; k < list_of_experiments_counterflow_flames.size(); k++)
+	{
+		counterflow_flames[k].Setup(list_of_experiments_counterflow_flames[k], thermodynamicsMapXML, kineticsMapXML, transportMapXML, virtual_chemistry);
+		counterflow_flames[k].Solve(true);
+	}
+
+	// Creat plugflow reactors
+	plugs = new OpenSMOKE::PlugFlowReactorExperiment[list_of_experiments_plugflow_reactors.size()];
+	for (unsigned int k = 0; k < list_of_experiments_plugflow_reactors.size(); k++)
+	{
+		plugs[k].Setup(list_of_experiments_plugflow_reactors[k], thermodynamicsMapXML, kineticsMapXML, virtual_chemistry);
+		plugs[k].Solve(true);
+	}
+
 	{
 		// Create list of parameters
 		if (optimization_target == "main") flag.resize(4);
@@ -362,14 +365,8 @@ int main(int argc, char** argv)
 			OpenSMOKE::MinimizationSimplex mr;
 			mr(b0, OptFunction, bMin, bMax);
 			
-			// Write initial parameters on file
-			// b0.BzzPrint("Starting %e", b0);
-			
 			// Solve the optimization
 			mr();
-
-			// Write detailed summary on file
-			// mr.BzzPrint("Optimization results");
 
 			// Convert optimization parameters in real parameters
 			Eigen::VectorXd parametersOpt(numP);
@@ -389,9 +386,60 @@ int main(int argc, char** argv)
 			WriteTables(parametersOpt, flag);
 		}
 
-		else if (	algorithm == "LN_COBYLA" ||
-					algorithm == "GN_DIRECTA" ||
-					algorithm == "GN_CRS2_LM")
+		// 1) DIRECT (DIviding RECTangles)
+
+		// NLOPT_GN_DIRECT: DIviding RECTangles algorithm for global optimization:
+		//                  D.R.Jones, C.D.Perttunen, and B.E.Stuckmann
+		//                  "Lipschitzian optimization without the lipschitz constant"
+		//                  J.Optimization Theory and Applications, vol. 79, p. 157 (1993)
+		
+		// NLOPT_GN_DIRECT_L: is the "locally biased" variant
+		//                    J.M.Gablonsky and C.T.Kelley
+		//                    "A locally-biased form of the DIRECT algorithm"
+		//                    J.Global Optimization, vol. 21(1), p. 27-37 (2001)
+
+		// NLOPT_GN_DIRECT_L_RAND: randomized variant of DIRECT-L
+
+		// NLOPT_GNL_DIRECT_NOSCAL: unscaled variant
+		// NLOPT_GNL_DIRECT_L_NOSCAL: unscaled variant
+		// NLOPT_GNL_DIRECT_L_RAND_NOSCAL: unscaled variant
+
+		// NLOPT_GN_ORIG_DIRECT: original implementation by J.M.Gablonsky
+
+		// NLOPT_GN_ORIG_DIRECT_L: original implementation by J.M.Gablonsky
+
+
+		// 2) CONTROLLED RANDOM SEARCH ALGORITHMS 
+
+		// NLOPT_GN_CRS2_LM: Controlled Random Search (CRS) algorithm (CRS2 variant) with the "local mutation" modification
+		//                   P.Kaelo and M.M.Ali
+		//                   "Some variants of the controlled random search algorithm for global optimization"
+		//                   J.Optim.Theory Appl. 130 (2), 253 - 264 (2006).
+		//                   W.L.Price
+		//                   "A controlled random search procedure for global optimization," in Towards Global Optimization 2, p. 71-84
+		//                   Edited by L.C.W.Dixon and G.P.Szego(North - Holland Press, Amsterdam, 1978).
+		//                   W.L.Price
+		//                   "Global optimization by controlled random search"
+		//                   J.Optim.Theory Appl. 40 (3), p. 333 - 348 (1983).
+
+
+		// 3) MLSL (Multi-Level Single-Linkage)
+		
+		// NLOPT_G_MLSL: original MLSL algorithm (using pseudo-random numbers via the Mersenne twister algorithm)
+		//                A.H.G. Rinnooy Kan and G. T. Timmer
+		//                "Stochastic global optimization methods"
+		//                Mathematical Programming, vol. 39, p. 27-78 (1987)
+
+		// NLOPT_G_MLSL_LDS: LDS-based MLSL algorithm (Sobol's low-discrepancy sequence (LDS) instead of pseudorandom numbers)
+		//                   S. Kucherenko and Y. Sytsko
+		//                   "Application of deterministic low-discrepancy sequences in global optimization"
+		//                   Computational Optimization and Applications, vol. 30, p. 297-318 (2005).
+		
+		// In both cases the local optimizer must be set: nlopt_opt_set_local_optimizer 
+
+		else if (	algorithm == "DIRECT" ||
+					algorithm == "CRS" ||
+					algorithm == "MLSL")
 		{
 			const double f0 = OptFunction(b0);
 
@@ -406,12 +454,46 @@ int main(int argc, char** argv)
 			}
 
 			nlopt_opt opt;
-			if (algorithm == "LN_COBYLA")
-				opt = nlopt_create(NLOPT_LN_COBYLA, numP);
-			else if (algorithm == "GN_DIRECTA")
-				opt = nlopt_create(NLOPT_GN_DIRECT, numP);
-			else if (algorithm == "GN_CRS2_LM")
-				opt = nlopt_create(NLOPT_GN_CRS2_LM, numP);
+			if (algorithm == "DIRECT")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_GN_DIRECT, numP);
+				else if (variant == "L")
+					opt = nlopt_create(NLOPT_GN_DIRECT_L, numP);
+				else if (variant == "L_RAND")
+					opt = nlopt_create(NLOPT_GN_DIRECT_L_RAND, numP);
+				else if (variant == "NOSCAL")
+					opt = nlopt_create(NLOPT_GN_DIRECT_NOSCAL, numP);
+				else if (variant == "L_NOSCAL")
+					opt = nlopt_create(NLOPT_GN_DIRECT_L_NOSCAL, numP);
+				else if (variant == "L_RAND_NOSCAL")
+					opt = nlopt_create(NLOPT_GN_DIRECT_L_RAND_NOSCAL, numP);
+				else if (variant == "ORIG")
+					opt = nlopt_create(NLOPT_GN_ORIG_DIRECT, numP);
+				else if (variant == "L_ORIG")
+					opt = nlopt_create(NLOPT_GN_ORIG_DIRECT_L, numP);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for DIRECT algorithms: \
+						NONE | L | L_RAND | NOSCAL | L_NOSCAL | L_RAND_NOSCAL | ORIG | L_ORIG");
+			}
+			else if (algorithm == "CRS")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_GN_CRS2_LM, numP);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for CRS algorithms: NONE ");
+			}
+			else if (algorithm == "MLSL")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_G_MLSL, numP);
+				else if (variant == "LDS")
+					opt = nlopt_create(NLOPT_G_MLSL_LDS, numP);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for MLSL algorithms: NONE | LDS");
+
+				//nlopt_opt_set_local_optimizer(opt, ;
+			}
 
 			nlopt_set_lower_bounds(opt, lb);
 			nlopt_set_upper_bounds(opt, ub);
@@ -464,23 +546,28 @@ double ReturnObjFunction(const Eigen::VectorXd parameters)
 	double fobj_abs = 0.;
 	double fobj_rel = 0.;
 
-	if (experiments_plugs == true)
+	// Plug flow reactors
+	for (unsigned int k = 0; k < list_of_experiments_plugflow_reactors.size(); k++)
 	{
-		for (unsigned int k = 0; k < nExp; k++)
-		{
-			plugs[k].Solve();
-			fobj_abs += plugs[k].norm2_abs_error();
-			fobj_rel += plugs[k].norm2_rel_error();
-		}
+		plugs[k].Solve();
+		fobj_abs += plugs[k].norm2_abs_error();
+		fobj_rel += plugs[k].norm2_rel_error();
 	}
-	else
+
+	// Premixed 1D flame
+	for (unsigned int k = 0; k < list_of_experiments_premixed_flames.size(); k++)
 	{
-		for (unsigned int k = 0; k < nExp; k++)
-		{
-			flames[k].Solve();
-			fobj_abs += flames[k].norm2_abs_error();
-			fobj_rel += flames[k].norm2_rel_error();
-		}
+		premixed_flames[k].Solve();
+		fobj_abs += premixed_flames[k].norm2_abs_error();
+		fobj_rel += premixed_flames[k].norm2_rel_error();
+	}
+
+	// Counterflow flames
+	for (unsigned int k = 0; k < list_of_experiments_counterflow_flames.size(); k++)
+	{
+		counterflow_flames[k].Solve();
+		fobj_abs += counterflow_flames[k].norm2_abs_error();
+		fobj_rel += counterflow_flames[k].norm2_rel_error();
 	}
 
 	std::cout << "f(abs) = " << fobj_abs << "   -   f(rel) = " << fobj_rel << std::endl;
