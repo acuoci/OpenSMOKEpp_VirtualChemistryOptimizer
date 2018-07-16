@@ -114,13 +114,20 @@ namespace OpenSMOKE
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Algorithm",
 				OpenSMOKE::SINGLE_STRING,
-				"Algorithm OpenSMOKEpp-Simplex | DIRECT | CRS | MLSL | STOGO | ISRES | ESCH | COBYLA | BOBYQA |NEWUOA | PRAXIS | NELDERMEAD | SBPLX (default: OpenSMOKEpp-Simplex)",
+				"Algorithm: OpenSMOKEpp-Simplex | DIRECT | CRS | MLSL | STOGO | ISRES | ESCH | \
+							COBYLA | BOBYQA |NEWUOA | PRAXIS | NELDERMEAD | SBPLX | \
+							SLSQP | LBFGS | TNEWTON_PRECOND | SLM_VAR (default: OpenSMOKEpp-Simplex)",
 				true));
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@Variant",
 				OpenSMOKE::SINGLE_STRING,
 				"Algorithm variant (default: none)",
 				true));
+
+			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@CentralGradient",
+				OpenSMOKE::SINGLE_BOOL,
+				"Central differences for calculating the gradient instead of forward differences (default: false)",
+				false));
 
 			AddKeyWord(OpenSMOKE::OpenSMOKE_DictionaryKeyWord("@OptimizationTarget",
 				OpenSMOKE::SINGLE_STRING,

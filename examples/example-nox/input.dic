@@ -19,8 +19,10 @@ Dictionary Optimizer
 		@VirtualChemistry					virtual-chemistry;
 		
 		@RelativeErrors						true;
-		@Algorithm 							DIRECT;	// OpenSMOKEpp-Simplex | DIRECT | CRS | MLSL
+		@Algorithm 							OpenSMOKEpp-Simplex;	// OpenSMOKEpp-Simplex | DIRECT | CRS | MLSL | STOGO | ISRES | ESCH | COBYLA | BOBYQA |NEWUOA | PRAXIS | NELDERMEAD | SBPLX | SLSQP | LBFGS | TNEWTON_PRECOND | SLM_VAR
 		@Variant							L;
+		@CentralGradient					true;
+		
 		@MaxIterations						100000;
 		
 		@OptimizationTarget					NO;

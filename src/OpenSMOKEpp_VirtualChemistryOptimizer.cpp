@@ -59,6 +59,7 @@
 #include "premixed-1dflame/Premixed1DFlameExperiment.h"
 #include "counterflow-1dflame/CounterFlow1DFlameExperiment.h"
 
+const double UNFEASIBLE_BIG_NUMBER = 1.e16;
 
 void FromMinimizationParametersToRealParameters(const Eigen::VectorXd& b, Eigen::VectorXd& parameters, const std::vector<bool>& flag);
 void FromRealParametersToMinimizationParameters(const Eigen::VectorXd& parameters, Eigen::VectorXd& b, Eigen::VectorXd& bMin, Eigen::VectorXd& bMax, const std::vector<bool>& flag);
@@ -81,17 +82,22 @@ std::vector<std::string> list_of_experiments_counterflow_flames;
 
 bool obj_function_relative_errors;
 
-int numP;
+int number_parameters;
+bool central_difference;
 std::string optimization_target;
 
 double fobj_rel_best;
 double fobj_abs_best;
 std::ofstream fMonitoring;
+std::ofstream fMonitoringBest;
 
 std::vector<double> list_of_relative_minima;
 std::vector<double> list_of_absolute_minima;
 std::vector<double> list_of_relative_maxima;
 std::vector<double> list_of_absolute_maxima;
+
+unsigned int numberOfGradientEvaluations;
+unsigned int numberOfFunctionEvaluations;
 
 int main(int argc, char** argv)
 {
@@ -265,6 +271,11 @@ int main(int argc, char** argv)
 	if (dictionaries(main_dictionary_name_).CheckOption("@Variant") == true)
 		dictionaries(main_dictionary_name_).ReadString("@Variant", variant);
 
+	// Central/Forward gradient
+	central_difference = false;
+	if (dictionaries(main_dictionary_name_).CheckOption("@CentralGradient") == true)
+		dictionaries(main_dictionary_name_).ReadBool("@CentralGradient", central_difference);
+
 	// Max number iterations
 	int max_eval = 1000000;
 	if (dictionaries(main_dictionary_name_).CheckOption("@MaxIterations") == true)
@@ -305,22 +316,22 @@ int main(int argc, char** argv)
 		std::fill(flag.begin(), flag.end(), false);
 		for (unsigned int k = 0; k < list_of_parameters.size(); k++)
 			flag[list_of_parameters[k]] = true;
-		numP = std::count(flag.begin(), flag.end(), true);
+		number_parameters = std::count(flag.begin(), flag.end(), true);
 
 		// Check
-		if (list_of_first_guess.size() != 0 && list_of_first_guess.size() != numP)
+		if (list_of_first_guess.size() != 0 && list_of_first_guess.size() != number_parameters)
 			OpenSMOKE::FatalErrorMessage("Error in specifying list of first guess values");
-		if (list_of_absolute_maxima.size() != 0 && list_of_absolute_maxima.size() != numP)
+		if (list_of_absolute_maxima.size() != 0 && list_of_absolute_maxima.size() != number_parameters)
 			OpenSMOKE::FatalErrorMessage("Error in specifying list of absolute maxima values");
-		if (list_of_relative_maxima.size() != 0 && list_of_relative_maxima.size() != numP)
+		if (list_of_relative_maxima.size() != 0 && list_of_relative_maxima.size() != number_parameters)
 			OpenSMOKE::FatalErrorMessage("Error in specifying list of relative maxima values");
-		if (list_of_absolute_minima.size() != 0 && list_of_absolute_minima.size() != numP)
+		if (list_of_absolute_minima.size() != 0 && list_of_absolute_minima.size() != number_parameters)
 			OpenSMOKE::FatalErrorMessage("Error in specifying list of absolute minima values");
-		if (list_of_relative_minima.size() != 0 && list_of_relative_minima.size() != numP)
+		if (list_of_relative_minima.size() != 0 && list_of_relative_minima.size() != number_parameters)
 			OpenSMOKE::FatalErrorMessage("Error in specifying list of relative minima values");
 
 		// Get first guess values
-		Eigen::VectorXd parameters0(numP);
+		Eigen::VectorXd parameters0(number_parameters);
 		if (list_of_first_guess.size() == 0)
 		{
 			virtual_chemistry->GetParameters(parameters0, flag);
@@ -334,16 +345,16 @@ int main(int argc, char** argv)
 		WriteTables(parameters0, flag);
 
 		// Get minimization parameters
-		Eigen::VectorXd b0(numP), bMin(numP), bMax(numP);
+		Eigen::VectorXd b0(number_parameters), bMin(number_parameters), bMax(number_parameters);
 		FromRealParametersToMinimizationParameters(parameters0, b0, bMin, bMax, flag);
 
 		// Print data on screen
 		std::cout << "Parameters: " << std::endl;
-		for (unsigned int i = 0; i < numP; i++)
+		for (unsigned int i = 0; i < number_parameters; i++)
 			std::cout << i << " " << parameters0(i) << " " << b0(i) << " " << bMin(i) << " " << bMax(i) << std::endl;
 
 		// Check
-		for (unsigned int i = 0; i < numP; i++)
+		for (unsigned int i = 0; i < number_parameters; i++)
 		{
 			if (bMin(i) >= bMax(i))
 				OpenSMOKE::FatalErrorMessage("Error in min/max constraints: min > max");
@@ -358,6 +369,8 @@ int main(int argc, char** argv)
 		fobj_abs_best = 1.e20;
 		fMonitoring.open("log", std::ios::out);
 		fMonitoring.setf(std::ios::scientific);
+		fMonitoringBest.open("log.best", std::ios::out);
+		fMonitoringBest.setf(std::ios::scientific);
 
 		if(algorithm == "OpenSMOKEpp-Simplex")
 		{
@@ -369,8 +382,8 @@ int main(int argc, char** argv)
 			mr();
 
 			// Convert optimization parameters in real parameters
-			Eigen::VectorXd parametersOpt(numP);
-			Eigen::VectorXd bOpt(numP);
+			Eigen::VectorXd parametersOpt(number_parameters);
+			Eigen::VectorXd bOpt(number_parameters);
 			mr.GetSolution(bOpt);
 			FromMinimizationParametersToRealParameters(bOpt, parametersOpt, flag);
 
@@ -379,7 +392,7 @@ int main(int argc, char** argv)
 			const double fOpt = OptFunction(bOpt);
 			std::cout << "Objective function: " << f0 << " -> " << fOpt << std::endl;
 			std::cout << "Optimal Parameters: " << std::endl;
-			for (unsigned int i = 0; i < numP; i++)
+			for (unsigned int i = 0; i < number_parameters; i++)
 				std::cout << i << " " << parameters0(i) << " -> " << parametersOpt(i) << std::endl;
 
 			// Write on file
@@ -442,28 +455,30 @@ int main(int argc, char** argv)
 					algorithm == "ISRES" || algorithm == "ESCH" ||
 					algorithm == "COBYLA" || algorithm == "BOBYQA" ||
 					algorithm == "NEWUOA" || algorithm == "PRAXIS" ||
-					algorithm == "NELDERMEAD" || algorithm == "SBPLX" )
+					algorithm == "NELDERMEAD" || algorithm == "SBPLX" ||
+					algorithm == "SLSQP" || algorithm == "LBFGS" || 
+					algorithm == "TNEWTON_PRECOND" || algorithm == "SLM_VAR" )
 		{
 			nlopt_opt opt;
 			
 			if (algorithm == "DIRECT")
 			{
 				if (variant == "NONE" || variant == "")
-					opt = nlopt_create(NLOPT_GN_DIRECT, numP);
+					opt = nlopt_create(NLOPT_GN_DIRECT, number_parameters);
 				else if (variant == "L")
-					opt = nlopt_create(NLOPT_GN_DIRECT_L, numP);
+					opt = nlopt_create(NLOPT_GN_DIRECT_L, number_parameters);
 				else if (variant == "L_RAND")
-					opt = nlopt_create(NLOPT_GN_DIRECT_L_RAND, numP);
+					opt = nlopt_create(NLOPT_GN_DIRECT_L_RAND, number_parameters);
 				else if (variant == "NOSCAL")
-					opt = nlopt_create(NLOPT_GN_DIRECT_NOSCAL, numP);
+					opt = nlopt_create(NLOPT_GN_DIRECT_NOSCAL, number_parameters);
 				else if (variant == "L_NOSCAL")
-					opt = nlopt_create(NLOPT_GN_DIRECT_L_NOSCAL, numP);
+					opt = nlopt_create(NLOPT_GN_DIRECT_L_NOSCAL, number_parameters);
 				else if (variant == "L_RAND_NOSCAL")
-					opt = nlopt_create(NLOPT_GN_DIRECT_L_RAND_NOSCAL, numP);
+					opt = nlopt_create(NLOPT_GN_DIRECT_L_RAND_NOSCAL, number_parameters);
 				else if (variant == "ORIG")
-					opt = nlopt_create(NLOPT_GN_ORIG_DIRECT, numP);
+					opt = nlopt_create(NLOPT_GN_ORIG_DIRECT, number_parameters);
 				else if (variant == "L_ORIG")
-					opt = nlopt_create(NLOPT_GN_ORIG_DIRECT_L, numP);
+					opt = nlopt_create(NLOPT_GN_ORIG_DIRECT_L, number_parameters);
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for DIRECT algorithms: \
 						NONE | L | L_RAND | NOSCAL | L_NOSCAL | L_RAND_NOSCAL | ORIG | L_ORIG");
@@ -471,95 +486,131 @@ int main(int argc, char** argv)
 			else if (algorithm == "CRS")
 			{
 				if (variant == "NONE" || variant == "")
-					opt = nlopt_create(NLOPT_GN_CRS2_LM, numP);
+					opt = nlopt_create(NLOPT_GN_CRS2_LM, number_parameters);
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for CRS algorithms: NONE ");
 			}
 			else if (algorithm == "MLSL")
 			{
 				if (variant == "NONE" || variant == "")
-					opt = nlopt_create(NLOPT_G_MLSL, numP);
+					opt = nlopt_create(NLOPT_G_MLSL, number_parameters);
 				else if (variant == "LDS")
-					opt = nlopt_create(NLOPT_G_MLSL_LDS, numP);
+					opt = nlopt_create(NLOPT_G_MLSL_LDS, number_parameters);
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for MLSL algorithms: NONE | LDS");
 
 				nlopt_opt local_opt;
-				nlopt_create(NLOPT_LN_COBYLA, numP);
+				nlopt_create(NLOPT_LN_COBYLA, number_parameters);
 				nlopt_set_min_objective(local_opt, NLOptFunction, NULL);
 				nlopt_set_local_optimizer(opt, local_opt);
 			}
 			else if (algorithm == "STOGO")
 			{
 				if (variant == "NONE" || variant == "")
-					opt = nlopt_create(NLOPT_GD_STOGO, numP);
+					opt = nlopt_create(NLOPT_GD_STOGO, number_parameters);
 				else if (variant == "RAND")
-					opt = nlopt_create(NLOPT_GD_STOGO_RAND, numP);
+					opt = nlopt_create(NLOPT_GD_STOGO_RAND, number_parameters);
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for STOGO algorithms: NONE | RAND");
 			}
 			else if (algorithm == "ISRES")
 			{
 				if (variant == "NONE" || variant == "")
-					opt = nlopt_create(NLOPT_GN_ISRES, numP);
+					opt = nlopt_create(NLOPT_GN_ISRES, number_parameters);
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for ISRES algorithms: NONE");
 			}
 			else if (algorithm == "ESCH")
 			{
 				if (variant == "NONE" || variant == "")
-					opt = nlopt_create(NLOPT_GN_ESCH, numP);
+					opt = nlopt_create(NLOPT_GN_ESCH, number_parameters);
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for ESCH algorithms: NONE");
 			}
 			else if (algorithm == "COBYLA")
 			{
 				if (variant == "NONE" || variant == "")
-					opt = nlopt_create(NLOPT_LN_COBYLA, numP);
+					opt = nlopt_create(NLOPT_LN_COBYLA, number_parameters);
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for COBYLA algorithms: NONE");
 			}
 			else if (algorithm == "BOBYQA")
 			{
 				if (variant == "NONE" || variant == "")
-					opt = nlopt_create(NLOPT_LN_BOBYQA, numP);
+					opt = nlopt_create(NLOPT_LN_BOBYQA, number_parameters);
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for BOBYQA algorithms: NONE");
 			}
 			else if (algorithm == "NEWUOA")
 			{
 				if (variant == "NONE" || variant == "")
-					opt = nlopt_create(NLOPT_LN_NEWUOA_BOUND, numP);
+					opt = nlopt_create(NLOPT_LN_NEWUOA_BOUND, number_parameters);
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for NEWUOA algorithms: NONE");
 			}
 			else if (algorithm == "PRAXIS")
 			{
 				if (variant == "NONE" || variant == "")
-					opt = nlopt_create(NLOPT_LN_PRAXIS, numP);
+					opt = nlopt_create(NLOPT_LN_PRAXIS, number_parameters);
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for PRAXIS algorithms: NONE");
 			}
 			else if (algorithm == "NELDERMEAD")
 			{
 				if (variant == "NONE" || variant == "")
-					opt = nlopt_create(NLOPT_LN_NELDERMEAD, numP);
+					opt = nlopt_create(NLOPT_LN_NELDERMEAD, number_parameters);
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for NELDERMEAD algorithms: NONE");
 			}
 			else if (algorithm == "SBPLX")
 			{
 				if (variant == "NONE" || variant == "")
-					opt = nlopt_create(NLOPT_LN_SBPLX, numP);
+					opt = nlopt_create(NLOPT_LN_SBPLX, number_parameters);
 				else
 					OpenSMOKE::FatalErrorMessage("Allowed variants for SBPLX algorithms: NONE");
 			}
+			else if (algorithm == "SLSQP")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_LD_SLSQP, number_parameters);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for SLSQP algorithms: NONE");
+			}
+			else if (algorithm == "LBFGS")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_LD_LBFGS, number_parameters);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for LBFGS algorithms: NONE");
+			}
+			else if (algorithm == "TNEWTON_PRECOND")
+			{
+				if (variant == "NONE" || variant == "")
+					opt = nlopt_create(NLOPT_LD_TNEWTON_PRECOND_RESTART, number_parameters);
+				else if (variant == "NO_RESTART")
+					opt = nlopt_create(NLOPT_LD_TNEWTON_PRECOND, number_parameters);
+				else if (variant == "NO_PRECOND")
+					opt = nlopt_create(NLOPT_LD_TNEWTON_RESTART, number_parameters);
+				else if (variant == "NO_RESTART_NO_PRECOND")
+					opt = nlopt_create(NLOPT_LD_TNEWTON, number_parameters);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for TNEWTON_PRECOND algorithms: NONE | NO_RESTART | NO_PRECOND | NO_RESTART_NO_PRECOND");
+			}
+			else if (algorithm == "SLM_VAR")
+			{
+				if (variant == "VAR2")
+					opt = nlopt_create(NLOPT_LD_VAR2, number_parameters);
+				else if (variant == "VAR1")
+					opt = nlopt_create(NLOPT_LD_VAR1, number_parameters);
+				else
+					OpenSMOKE::FatalErrorMessage("Allowed variants for TNEWTON_PRECOND algorithms: VAR2 | VAR1");
+			}
 			
 
-			double* lb = new double[numP];// lower bounds
-			double* ub = new double[numP];// upper bounds
-			double* x = new double[numP];// first guess
-			for (unsigned int i = 0; i < numP; i++)
+			double* lb = new double[number_parameters];// lower bounds
+			double* ub = new double[number_parameters];// upper bounds
+			double* x = new double[number_parameters];// first guess
+			for (unsigned int i = 0; i < number_parameters; i++)
 			{
 				lb[i] = bMin(i);
 				ub[i] = bMax(i);
@@ -581,18 +632,18 @@ int main(int argc, char** argv)
 			}
 			else
 			{
-				Eigen::VectorXd bOpt(numP);
-				for (unsigned int i = 0; i < numP; i++)
+				Eigen::VectorXd bOpt(number_parameters);
+				for (unsigned int i = 0; i < number_parameters; i++)
 					bOpt(i) = x[i];
 
 				const double fOpt = OptFunction(bOpt);
 
-				Eigen::VectorXd parametersOpt(numP);
+				Eigen::VectorXd parametersOpt(number_parameters);
 				FromMinimizationParametersToRealParameters(bOpt, parametersOpt, flag);
 
 				std::cout << "Objective function: " << f0 << " -> " << fOpt << std::endl;
 				std::cout << "Optimal Parameters: " << std::endl;
-				for (unsigned int i = 0; i < numP; i++)
+				for (unsigned int i = 0; i < number_parameters; i++)
 					std::cout << i << " " << parameters0(i) << " " << parametersOpt(i) << std::endl;
 
 				WriteTables(parametersOpt, flag);
@@ -600,10 +651,13 @@ int main(int argc, char** argv)
 		}
 		else
 		{
-			OpenSMOKE::FatalErrorMessage("Error @Algorithm option: OpenSMOKEpp-Simplex | DIRECT | CRS | MLSL | STOGO | ISRES | ESCH | COBYLA | BOBYQA |NEWUOA | PRAXIS | NELDERMEAD | SBPLX");
+			OpenSMOKE::FatalErrorMessage("Error @Algorithm option:	OpenSMOKEpp-Simplex | DIRECT | CRS | MLSL | STOGO | ISRES | ESCH | \
+																		COBYLA | BOBYQA |NEWUOA | PRAXIS | NELDERMEAD | SBPLX | \
+																		SLSQP | LBFGS | TNEWTON_PRECOND | SLM_VAR");
 		}
 
 		fMonitoring.close();
+		fMonitoringBest.close();
 	}
 
 	OpenSMOKE::OpenSMOKE_logo("OpenSMOKEpp_VirtualChemistryOptimizer", "Alberto Cuoci (alberto.cuoci@polimi.it)");
@@ -652,11 +706,16 @@ double ReturnObjFunction(const Eigen::VectorXd parameters)
 		{
 			fobj_rel_best = fobj_rel;
 
-			fMonitoring << std::left << std::setw(16) << fobj_rel;
-			for (unsigned int i = 0; i<numP; i++)
-				fMonitoring << std::left << std::setw(16) << parameters(i);
-			fMonitoring << std::endl;
+			fMonitoringBest << std::left << std::setw(16) << fobj_rel;
+			for (unsigned int i = 0; i<number_parameters; i++)
+				fMonitoringBest << std::left << std::setw(16) << parameters(i);
+			fMonitoringBest << std::endl;
 		}
+
+		fMonitoring << std::left << std::setw(16) << fobj_rel;
+		for (unsigned int i = 0; i<number_parameters; i++)
+			fMonitoring << std::left << std::setw(16) << parameters(i);
+		fMonitoring << std::endl;
 
 		return fobj_rel;
 	}
@@ -666,11 +725,16 @@ double ReturnObjFunction(const Eigen::VectorXd parameters)
 		{
 			fobj_abs_best = fobj_abs;
 
-			fMonitoring << std::left << std::setw(16) << fobj_abs;
-			for (unsigned int i = 0; i<numP; i++)
-				fMonitoring << std::left << std::setw(16) << parameters(i);
-			fMonitoring << std::endl;
+			fMonitoringBest << std::left << std::setw(16) << fobj_abs;
+			for (unsigned int i = 0; i<number_parameters; i++)
+				fMonitoringBest << std::left << std::setw(16) << parameters(i);
+			fMonitoringBest << std::endl;
 		}
+
+		fMonitoring<< std::left << std::setw(16) << fobj_abs;
+		for (unsigned int i = 0; i<number_parameters; i++)
+			fMonitoring << std::left << std::setw(16) << parameters(i);
+		fMonitoring << std::endl;
 
 		return fobj_abs;
 	}
@@ -680,7 +744,6 @@ double OptFunction(const Eigen::VectorXd &b)
 {
 	Eigen::VectorXd parameters(b.size());
 	FromMinimizationParametersToRealParameters(b, parameters, flag);
-
 	virtual_chemistry->SetParameters(parameters, flag);
 	
 	return ReturnObjFunction(parameters);
@@ -688,27 +751,80 @@ double OptFunction(const Eigen::VectorXd &b)
 
 double NLOptFunction(unsigned n, const double *x, double *grad, void *my_func_data)
 {
-	//neval++;
+	Eigen::VectorXd b(number_parameters);
+	for (unsigned int i = 0; i < number_parameters; i++)
+		b(i) = x[i];
+
+	const double f = OptFunction(b);
 
 	if (grad)
 	{
-		std::cout << "Error: the optimization algorithm in use requires the gradient!" << std::endl;
-		std::cout << "       please consider a different optimization algorithm" << std::endl;
-		std::cout << "       press enter to exit..." << std::endl;
-		getchar();
-		exit(-1);
+		std::cout << "Gradient evaluation..." << std::endl;
+
+		const double ETA2 = std::sqrt(OpenSMOKE::OPENSMOKE_MACH_EPS_DOUBLE);
+		const double ETA3 = std::pow(OpenSMOKE::OPENSMOKE_MACH_EPS_DOUBLE, 1. / 3.);
+		const double ZERO_DER = std::sqrt(OPENSMOKE_TINY_DOUBLE);
+
+		// Dimensions of parameters vector
+		Eigen::VectorXd b_dimensions(number_parameters);
+		b_dimensions.setConstant(1.);
+
+		// Choosing between forward and centrale difference
+		double eta = ETA2;
+		if (central_difference == true)
+			eta = ETA3;
+
+		// Estimate the increment for forward approximation
+		Eigen::VectorXd deltab(number_parameters);
+		for (unsigned int i = 0; i < number_parameters; i++)
+		{
+			if (b(i) < 0.)
+				deltab(i) = -eta * std::max(std::fabs(b(i)), std::fabs(b_dimensions(i)));
+			else
+				deltab(i) = eta * std::max(std::fabs(b(i)), std::fabs(b_dimensions(i)));
+
+			if (deltab(i) == 0.)
+				deltab(i) = ZERO_DER;
+		}
+
+		// Forward gradient
+		if (central_difference == false)
+		{
+			Eigen::VectorXd b_plus = b;
+			for (unsigned int j = 0; j < number_parameters; j++)
+			{
+				b_plus(j) = b(j) + deltab(j);
+				const double f_plus = OptFunction(b_plus);
+
+				grad[j] = (f_plus - f) / deltab(j);
+
+				b_plus(j) = b(j);
+			}
+		}
+
+		// Central gradient
+		if (central_difference == true)
+		{
+			Eigen::VectorXd b_star = b;
+			for (unsigned int j = 0; j < number_parameters; j++)
+			{
+				b_star(j) = b(j) + deltab(j);
+				const double f_plus = OptFunction(b_star);
+				b_star(j) = b(j) - deltab(j);
+				const double f_minus = OptFunction(b_star);
+
+				grad[j] = (f_plus - f_minus) / (2.*deltab(j));
+
+				b_star(j) = b(j);
+			}
+		}
+
+		numberOfGradientEvaluations++;
 	}
 
-	Eigen::VectorXd b(numP);
-	for (unsigned int i = 0; i < numP; i++)
-		b(i) = x[i];
+	numberOfFunctionEvaluations++;
 
-	Eigen::VectorXd parameters(b.size());
-	FromMinimizationParametersToRealParameters(b, parameters, flag);
-
-	virtual_chemistry->SetParameters(parameters, flag);
-
-	return ReturnObjFunction(parameters);
+	return f;
 }
 
 void FromMinimizationParametersToRealParameters(const Eigen::VectorXd& b, Eigen::VectorXd& parameters, const std::vector<bool>& flag)
