@@ -110,6 +110,7 @@
       <SDLCheck>false</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>NLOPT_LIB=1;OPTIM_LIB=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>C:\Development\ExternalNumericalLibraries\Boost\boost_1_65_1\lib-msvs2017-x64;C:\Development\ExternalNumericalLibraries\NLopt\nlopt-2.4.2-dll64</AdditionalLibraryDirectories>
@@ -139,7 +140,7 @@
       <SDLCheck>false</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
-      <PreprocessorDefinitions>OPENSMOKE_USE_MKL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>OPENSMOKE_USE_MKL=1;NLOPT_LIB=1;OPTIM_LIB=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
