@@ -1,0 +1,96 @@
+//-----------------------------------------------------------------//
+//     ____                    ______ __  __  ____  _  ________    //
+//    / __ \                  /  ___ |  \/  |/ __ \| |/ /  ____|   //
+//   | |  | |_ __   ___ _ __ |  (___ | \  / | |  | | ' /| |__      //
+//   | |  | | '_ \ / _ \ '_ \ \___  \| |\/| | |  | |  < |  __|     //
+//   | |__| | |_) |  __/ | | |____)  | |  | | |__| | . \| |____    //
+//    \____/| .__/ \___|_| |_|______/|_|  |_|\____/|_|\_\______|   //
+//         | |                                                     //
+//         |_|                                                     //
+//                                                                 //
+//                http://www.opensmoke.polimi.it/                  //
+//             http://creckmodeling.chem.polimi.it/                //
+//-----------------------------------------------------------------//
+Dictionary PremixedLaminarFlame1D
+{
+	@Type					FlameSpeed;
+	@KineticsFolder			C:\Users\acuoci\OneDrive for Business\Research\My Collaborations\Fiorina\OpenSMOKEpp_VirtualChemistryOptimizer\examples\kinetic-mechanisms/virtual-chemistry-CO/2018.06.05/mechanism/kinetics;
+	
+	@InletStream 	inlet-stream;
+	@OutletStream	outlet-stream;
+	
+	@InletVelocity	40 cm/s;
+	
+	@Soret			false;
+	
+	@Grid			grid;
+	
+	@Output			Output;
+	
+	@UseNlsSolver	false;
+
+	@VirtualChemistry	virtual-chemistry;
+	
+	@Backup         ../vc/Output/Output.xml;
+}
+
+Dictionary dae-parameters
+{
+	@MaximumConstraints	true;
+}
+
+Dictionary virtual-chemistry
+{
+	@SubMechanism_CO	true;
+	@SubMechanism_NO	false;
+	
+	@Table		C:\Users\acuoci\OneDrive for Business\Research\My Collaborations\Fiorina\OpenSMOKEpp_VirtualChemistryOptimizer\examples\kinetic-mechanisms/virtual-chemistry-main/2017.09.11/tables/2S_tabulated_data.dat;
+	@Table_CO	C:\Users\acuoci\OneDrive for Business\Research\My Collaborations\Fiorina\OpenSMOKEpp_VirtualChemistryOptimizer\examples\kinetic-mechanisms/virtual-chemistry-CO/2018.06.05/tables/2S_tabulated_data_CO.dat;
+
+	@Version	170911;
+	@Reactions	true;
+
+	@FuelName		FUEL;
+	@FuelMW			16.043000	kg/kmol;
+	@OxidizerName	OX;
+	@OxidizerMW		31.997999	kg/kmol;
+	@InertName		N2;
+	@InertMW		28.014000	kg/kmol;
+	
+	@Viscosity_mu0		1.8405e-5 kg/m/s;
+	@Viscosity_T0		300. K;
+	@Viscosity_Beta0	0.6759;
+	@Viscosity_Pr0		0.70;
+}
+
+Dictionary inlet-stream
+{
+	@MassFractions	FUEL 0.055045872
+					OX   0.220183486
+					N2   0.724770642;
+						
+	@Temperature	300 K;
+	@Pressure		1 atm;
+}
+
+Dictionary outlet-stream
+{
+	@MassFractions	I    0.28
+					N2   0.72;
+
+	@Temperature	2100 K;
+	@Pressure		1 atm;
+}
+
+Dictionary grid
+{
+	@Length				10 cm;
+	@InitialPoints		12;
+	@Type				database;
+	
+	@MaxPoints				700;
+	@MaxAdaptivePoints		15;
+	@GradientCoefficient	0.0075;
+	@CurvatureCoefficient	0.2;
+}
+

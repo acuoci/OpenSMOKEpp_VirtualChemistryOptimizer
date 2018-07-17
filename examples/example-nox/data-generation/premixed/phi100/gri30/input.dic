@@ -1,0 +1,61 @@
+//-----------------------------------------------------------------//
+//     ____                    ______ __  __  ____  _  ________    //
+//    / __ \                  /  ___ |  \/  |/ __ \| |/ /  ____|   //
+//   | |  | |_ __   ___ _ __ |  (___ | \  / | |  | | ' /| |__      //
+//   | |  | | '_ \ / _ \ '_ \ \___  \| |\/| | |  | |  < |  __|     //
+//   | |__| | |_) |  __/ | | |____)  | |  | | |__| | . \| |____    //
+//    \____/| .__/ \___|_| |_|______/|_|  |_|\____/|_|\_\______|   //
+//         | |                                                     //
+//         |_|                                                     //
+//                                                                 //
+//                http://www.opensmoke.polimi.it/                  //
+//             http://creckmodeling.chem.polimi.it/                //
+//-----------------------------------------------------------------//
+Dictionary PremixedLaminarFlame1D
+{
+	@Type					FlameSpeed;
+	@KineticsFolder			C:\Users\acuoci\OneDrive for Business\Research\My Collaborations\Fiorina\OpenSMOKEpp_VirtualChemistryOptimizer\examples\kinetic-mechanisms\detailed-GRI30\kinetics;
+	
+	@InletStream 	inlet-stream;
+	@OutletStream	outlet-stream;
+	
+	@InletVelocity	40 cm/s;
+	
+	@Soret			false;
+	
+	@Grid			grid;
+	
+	@Output			Output;
+}
+
+Dictionary inlet-stream
+{
+	@MassFractions	CH4 0.055045872
+					O2  0.220183486
+					N2  0.724770642;
+						
+	@Temperature	300 K;
+	@Pressure		1 atm;
+}
+
+Dictionary outlet-stream
+{
+	@MassFractions	CO2   0.28
+					N2   0.72;
+
+	@Temperature	2100 K;
+	@Pressure		1 atm;
+}
+
+Dictionary grid
+{
+	@Length				10 cm;
+	@InitialPoints		12;
+	@Type				database;
+	
+	@MaxPoints				500;
+	@MaxAdaptivePoints		15;
+	@GradientCoefficient	0.025;
+	@CurvatureCoefficient	0.5;
+}
+
