@@ -5,6 +5,7 @@ kinetics/
 test-*/
 log*
 Output/
+BzzFile.txt
 
 #Personal settings
 ##################
