@@ -2,6 +2,9 @@
 #######################
 SetOpt*/
 kinetics/
+test-*/
+log*
+Output/
 
 #Personal settings
 ##################
