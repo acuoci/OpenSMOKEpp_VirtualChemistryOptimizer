@@ -34,7 +34,7 @@ Dictionary Optimizer
 		@OptimizationTarget					NO;
 		
 		@ListOfExperiments_PremixedFlames		premixed-1dflames/flame.phi100.dic;
-		@ListOfExperiments_CounterFlowFlames	cfdf-1dflames/cfdf.a200Hz.dic;
+		@ListOfExperiments_CounterFlowFlames	cfdf-1dflames/cfdf.a050Hz.dic cfdf-1dflames/cfdf.a100Hz.dic cfdf-1dflames/cfdf.a200Hz.dic;
 
 		@ListOfParameters					0 1 3 4 11 12 13;
 		@ListOfAbsoluteMinima				1.538479670000e+17 

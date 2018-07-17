@@ -1,0 +1,94 @@
+//-----------------------------------------------------------------//
+//     ____                    ______ __  __  ____  _  ________    //
+//    / __ \                  /  ___ |  \/  |/ __ \| |/ /  ____|   //
+//   | |  | |_ __   ___ _ __ |  (___ | \  / | |  | | ' /| |__      //
+//   | |  | | '_ \ / _ \ '_ \ \___  \| |\/| | |  | |  < |  __|     //
+//   | |__| | |_) |  __/ | | |____)  | |  | | |__| | . \| |____    //
+//    \____/| .__/ \___|_| |_|______/|_|  |_|\____/|_|\_\______|   //
+//         | |                                                     //
+//         |_|                                                     //
+//                                                                 //
+//                http://www.opensmoke.polimi.it/                  //
+//             http://creckmodeling.chem.polimi.it/                //
+//-----------------------------------------------------------------//
+Dictionary CounterFlowFlame1D
+{
+	@Type					CounterFlowDiffusion;
+
+	//	@KineticsFolder		../../../../../kinetic-mechanisms/virtual-chemistry-NO/2018.06.19/mechanism/kinetics;
+	@KineticsFolder			C:\Users\acuoci\OneDrive for Business\Research\My Collaborations\Fiorina\OpenSMOKEpp_VirtualChemistryOptimizer\examples\kinetic-mechanisms\virtual-chemistry-NO\2018.06.19\mechanism/kinetics;
+	
+	@FuelStream 			fuel-stream;
+	@OxidizerStream			oxidizer-stream;
+	
+	@FuelVelocity			67.125 cm/s;
+	@OxidizerVelocity		 50.00 cm/s;
+	
+	@Grid					grid;
+	
+	@Output					Output;
+	
+	@VirtualChemistry	virtual-chemistry;
+	
+	@UseNlsSolver		true;
+	@Soret				false;
+	
+	@Backup				../vc/Output/Output.xml;
+}
+
+Dictionary virtual-chemistry
+{
+	@SubMechanism_CO	false;
+	@SubMechanism_NO	true;
+	
+//	@Table		../../../../../kinetic-mechanisms/virtual-chemistry-main/2017.09.11/tables/2S_tabulated_data.dat;
+	@Table		C:\Users\acuoci\OneDrive for Business\Research\My Collaborations\Fiorina\OpenSMOKEpp_VirtualChemistryOptimizer\examples\kinetic-mechanisms\virtual-chemistry-main\2017.09.11\tables\2S_tabulated_data.dat;
+	
+//	@Table_NO	../../../../../kinetic-mechanisms/virtual-chemistry-NO/2018.06.19/tables/2S_tabulated_data_NO.dat;
+	@Table_NO	C:\Users\acuoci\OneDrive for Business\Research\My Collaborations\Fiorina\OpenSMOKEpp_VirtualChemistryOptimizer\examples\kinetic-mechanisms\virtual-chemistry-NO\2018.06.19\tables\2S_tabulated_data_NO.dat;
+	
+	@Version	170911;
+	@Reactions	true;
+
+	@FuelName		FUEL;
+	@FuelMW			16.043000	kg/kmol;
+	@OxidizerName	OX;
+	@OxidizerMW		31.997999	kg/kmol;
+	@InertName		N2;
+	@InertMW		28.014000	kg/kmol;
+	
+	@Viscosity_mu0		1.8405e-5 kg/m/s;
+	@Viscosity_T0		300. K;
+	@Viscosity_Beta0	0.6759;
+	@Viscosity_Pr0		0.70;
+}
+
+Dictionary fuel-stream
+{
+	@MassFractions	FUEL  1;
+		
+	@Temperature		300 K;
+	@Pressure			1 atm;
+}
+
+Dictionary oxidizer-stream
+{
+	@MassFractions	OX    0.232
+					N2    0.768;
+					
+	@Temperature	300 K;
+	@Pressure		1 atm;
+}
+
+Dictionary grid
+{
+	@Length					20 mm;
+	@InitialPoints			600;
+	@Type					equispaced;
+	
+	@MaxPoints				650;
+	@MaxAdaptivePoints		15;
+	@GradientCoefficient	0.05;
+	@CurvatureCoefficient	0.5;
+}
+

@@ -1,0 +1,129 @@
+//-----------------------------------------------------------------//
+//     ____                    ______ __  __  ____  _  ________    //
+//    / __ \                  /  ___ |  \/  |/ __ \| |/ /  ____|   //
+//   | |  | |_ __   ___ _ __ |  (___ | \  / | |  | | ' /| |__      //
+//   | |  | | '_ \ / _ \ '_ \ \___  \| |\/| | |  | |  < |  __|     //
+//   | |__| | |_) |  __/ | | |____)  | |  | | |__| | . \| |____    //
+//    \____/| .__/ \___|_| |_|______/|_|  |_|\____/|_|\_\______|   //
+//         | |                                                     //
+//         |_|                                                     //
+//                                                                 //
+//                http://www.opensmoke.polimi.it/                  //
+//             http://creckmodeling.chem.polimi.it/                //
+//-----------------------------------------------------------------//
+Dictionary CounterFlowFlame1D
+{
+	@Type					CounterFlowDiffusion;
+	@KineticsFolder			../../../Mechanisms/virtual-chemistry-NO-phi1/2018.06.19/mechanism/kinetics;
+	
+	@FuelStream 			fuel-stream;
+	@OxidizerStream			oxidizer-stream;
+	
+	@FuelVelocity			67.125 cm/s;
+	@OxidizerVelocity		 50.00 cm/s;
+	
+	@Grid					grid;
+	
+	@Output					Output;
+	
+	@UseNlsSolver			true;
+	@Soret					false;
+	
+	@Optimization			optimization;
+	
+	@Backup        			cfdf-1dflames/cfdf.a100Hz.backup.xml;
+}
+
+Dictionary	optimization
+{	
+	@Temperature			false;
+	@Species				NO;
+	@TemperatureProfile		T-Profile;
+	@SpeciesProfile			NO-Profile;
+}
+
+Dictionary fuel-stream
+{
+	@MassFractions	FUEL  1;
+		
+	@Temperature		300 K;
+	@Pressure			1 atm;
+}
+
+Dictionary oxidizer-stream
+{
+	@MassFractions	OX    0.232
+					N2    0.768;
+					
+	@Temperature	300 K;
+	@Pressure		1 atm;
+}
+
+Dictionary grid
+{
+	@Length					20 mm;
+	@InitialPoints			600;
+	@Type					equispaced;
+	
+	@MaxPoints				650;
+	@MaxAdaptivePoints		15;
+	@GradientCoefficient	0.05;
+	@CurvatureCoefficient	0.5;
+}
+
+Dictionary NO-Profile
+{	
+		@XVariable length;
+		@YVariable dimensionless;
+		
+		@XUnits cm;
+		@YUnits dimensionless;
+		
+		@Profile
+		7.612688E-01	1.006864E-06
+		8.080134E-01	1.105769E-05
+		8.480801E-01	3.124632E-05
+		8.848080E-01	5.010938E-05
+		9.782972E-01	8.032318E-05
+		1.055092E+00	1.000767E-04
+		1.083472E+00	1.303881E-04
+		1.096828E+00	1.605396E-04
+		1.105175E+00	1.705252E-04
+		1.110184E+00	1.695686E-04
+		1.135225E+00	1.313095E-04
+		1.155259E+00	9.760847E-05
+		1.181970E+00	6.038264E-05
+		1.208681E+00	3.016644E-05
+		1.235392E+00	1.028224E-05
+		1.248748E+00	5.454551E-06
+		1.275459E+00	1.164672E-06
+		;
+}
+
+Dictionary T-Profile
+{	
+		@XVariable length;
+		@YVariable temperature;
+		
+		@XUnits cm;
+		@YUnits K;
+		
+		@Profile
+		7.612688E-01	3.135336E+02
+		8.480801E-01	6.082423E+02
+		9.115192E-01	1.009023E+03
+		9.549249E-01	1.296765E+03
+		1.005008E+00	1.601462E+03
+		1.045075E+00	1.812002E+03
+		1.073456E+00	1.948880E+03
+		1.090150E+00	1.995133E+03
+		1.101836E+00	1.970555E+03
+		1.115192E+00	1.901412E+03
+		1.128548E+00	1.813120E+03
+		1.161937E+00	1.496955E+03
+		1.198664E+00	1.020389E+03
+		1.232053E+00	6.135962E+02
+		1.275459E+00	3.431740E+02
+		;
+}
+
