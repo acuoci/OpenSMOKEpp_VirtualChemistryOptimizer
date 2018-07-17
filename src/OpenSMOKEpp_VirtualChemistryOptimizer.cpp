@@ -380,6 +380,9 @@ int main(int argc, char** argv)
 				OpenSMOKE::FatalErrorMessage("Error in min/max constraints: first guess value >= max");
 		}
 
+		// Calculates objective function in the starting point
+		const double f0 = OptFunction(b0);
+
 		// Start optimization procedure
 		fobj_rel_best = 1.e20;
 		fobj_abs_best = 1.e20;
@@ -404,7 +407,6 @@ int main(int argc, char** argv)
 			FromMinimizationParametersToRealParameters(bOpt, parametersOpt, flag);
 
 			// Write on the screen
-			const double f0 = OptFunction(b0);
 			const double fOpt = OptFunction(bOpt);
 			std::cout << "Objective function: " << f0 << " -> " << fOpt << std::endl;
 			std::cout << "Optimal Parameters: " << std::endl;
@@ -640,13 +642,12 @@ int main(int argc, char** argv)
 			nlopt_set_min_objective(opt, NLOptFunction, NULL);
 			nlopt_set_maxeval(opt, max_eval);
 
-			// Calculates objective function in the starting point
-			const double f0 = OptFunction(b0);
-
 			double fOpt;
 			if (nlopt_optimize(opt, x, &fOpt) < 0)
 			{
-				printf("nlopt failed!\n");
+				std::cout << "NLopt failed" << std::endl;
+				getchar();
+				exit(-1);
 			}
 			else
 			{
@@ -702,11 +703,21 @@ int main(int argc, char** argv)
 
 			if (success == true) 
 			{
-				std::cout << "OPTIM: Optimization successfully completed" << std::endl;
-				std::cout << "       Elapsed time: " << elapsed_seconds.count() << "s" << std::endl;
-
+				Eigen::VectorXd bOpt(number_parameters);
 				for (unsigned int i = 0; i < number_parameters; i++)
 					bOpt(i) = x[i];
+
+				const double fOpt = OptFunction(bOpt);
+
+				Eigen::VectorXd parametersOpt(number_parameters);
+				FromMinimizationParametersToRealParameters(bOpt, parametersOpt, flag);
+
+				std::cout << "Objective function: " << f0 << " -> " << fOpt << std::endl;
+				std::cout << "Optimal Parameters: " << std::endl;
+				for (unsigned int i = 0; i < number_parameters; i++)
+					std::cout << i << " " << parameters0(i) << " " << parametersOpt(i) << std::endl;
+
+				WriteTables(parametersOpt, flag);
 			} 
 			else 
 			{

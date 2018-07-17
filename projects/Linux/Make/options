@@ -1,6 +1,8 @@
 EXE_INC = \
     -w \
     $(MKL_SUPPORT) \
+    $(NLOPT_SUPPORT) \
+    $(OPTIM_SUPPORT) \
     -I../../src/ \
     -I../../src/openSMOKEpp4virtualChemistryOptimizer  \
     -I../../src/openSMOKEpp4virtualChemistryOptimizer/premixedlaminarflame1d \
@@ -8,14 +10,15 @@ EXE_INC = \
     -I$(BOOST_LIBRARY_PATH)/include \
     -I$(EIGEN_LIBRARY_PATH) \
     -I$(RAPIDXML_LIBRARY_PATH) \
-    -I$(NLOPT_LIBRARY_PATH)/include \
-    -I$(MKL_PATH)/include 
+    $(NLOPT_INCLUDE) \
+    $(OPTIM_INCLUDE) \
+    -I$(MKL_PATH)/include
 
 EXE_LIBS = \
     -L$(FOAM_USER_LIBBIN) \
     -L$(BOOST_LIBRARY_PATH)/lib \
-    -lgfortran \
-    $(NLOPT_LIBRARY_PATH)/lib/libnlopt_cxx.a \
+    $(NLOPT_LIBS) \
+    $(OPTIM_LIBS) \
     $(MKL_LIBS) \
     -lboost_date_time \
     -lboost_filesystem \

@@ -6,8 +6,18 @@ export NLOPT_LIBRARY_PATH=/software/chimica2/libraries/nlopt/nlopt-2.4.2
 
 #Options
 export MKL_SUPPORT='-DOPENSMOKE_USE_MKL=1'
+export NLOPT_SUPPORT='-DNLOPT_LIB=1'
+export OPTIM_SUPPORT='-DOPTIM_LIB=1'
 
 #Only if the OPENSMOKE_USE_MKL is turned on
 export MKL_PATH=$HOME/intel/mkl
 export MKL_LIBS='-Wl,--start-group $(MKL_PATH)/lib/intel64/libmkl_intel_lp64.a $(MKL_PATH)/lib/intel64/libmkl_core.a $(MKL_PATH)/lib/intel64/libmkl_sequential.a -Wl,--end-group -lpthread -lm'
+
+#Only if the OPTIM_SUPPORT is turned on
+export NLOPT_INCLUDE='-I/software/chimica2/libraries/nlopt/nlopt-2.4.2/include/'
+export NLOPT_LIBS='/software/chimica2/libraries/nlopt/nlopt-2.4.2/lib/libnlopt_cxx.a'
+
+#Only if the OPTIM_SUPPORT is turned on
+export OPTIM_INCLUDE='-I/software/chimica2/libraries/optim/include -I/software/chimica2/libraries/armadillo/armadillo-8.600.0/include/'
+export OPTIM_LIBS='-L/software/chimica2/libraries/optim/lib -loptim'
 
