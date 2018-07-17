@@ -14,7 +14,7 @@
 Dictionary PremixedLaminarFlame1D
 {
 	@Type					FlameSpeed;
-	@KineticsFolder			../../../Mechanisms/virtual-chemistry-NO/2018.06.19/mechanism/kinetics;
+	@KineticsFolder			../../../Mechanisms/virtual-chemistry-NO/2018.06.19-phi1/mechanism/kinetics;
 	
 	@InletStream 	inlet-stream;
 	@OutletStream	outlet-stream;

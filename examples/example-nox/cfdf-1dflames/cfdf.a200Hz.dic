@@ -14,30 +14,24 @@
 Dictionary CounterFlowFlame1D
 {
 	@Type					CounterFlowDiffusion;
-	@KineticsFolder			../../../Mechanisms/virtual-chemistry-NO/2018.06.19-phi1/mechanism/kinetics;
+	@KineticsFolder			../../../Mechanisms/virtual-chemistry-NO-phi1/2018.06.19/mechanism/kinetics;
 	
 	@FuelStream 			fuel-stream;
 	@OxidizerStream			oxidizer-stream;
 	
-	@FuelVelocity			100.0000000 cm/s;
-	@OxidizerVelocity		100.0000000 cm/s;
+	@FuelVelocity			134.25 cm/s;
+	@OxidizerVelocity		100.00 cm/s;
 	
 	@Grid					grid;
 	
 	@Output					Output;
 	
-	@EigenValueStartingGuess	-100 kg/m3/s2;
-	@PeakMixture				peak-mixture;
-	@InitialProfiles			linear;
-	@PeakPosition				10 mm;
-	@MixingZoneWidth			15 mm;
+	@UseNlsSolver			true;
+	@Soret					false;
 	
-	@UseNlsSolver		true;
-	@Soret				false;
+	@Optimization			optimization;
 	
-	@Optimization		optimization;
-	
-	@Backup        		twin-1dflames/twin.phi100.a200Hz.backup.xml;
+	@Backup        			cfdf-1dflames/cfdf.a200Hz.backup.xml;
 }
 
 Dictionary	optimization
@@ -50,9 +44,7 @@ Dictionary	optimization
 
 Dictionary fuel-stream
 {
-	@MassFractions	FUEL  0.055045872
-					OX    0.220183486
-					N2    0.724770642;
+	@MassFractions	FUEL  1;
 		
 	@Temperature		300 K;
 	@Pressure			1 atm;
@@ -60,19 +52,10 @@ Dictionary fuel-stream
 
 Dictionary oxidizer-stream
 {
-	@MassFractions	FUEL  0.055045872
-					OX    0.220183486
-					N2    0.724770642;
+	@MassFractions	OX    0.232
+					N2    0.768;
 					
 	@Temperature	300 K;
-	@Pressure		1 atm;
-}
-
-Dictionary peak-mixture
-{
-	@MassFractions		N2   1;
-					
-	@Temperature	2000 K;
 	@Pressure		1 atm;
 }
 
@@ -97,18 +80,26 @@ Dictionary NO-Profile
 		@YUnits dimensionless;
 		
 		@Profile
-		5.141903E-01	1.083024E-06
-		5.308848E-01	5.599279E-06
-		5.409015E-01	1.008058E-05
-		5.592654E-01	2.042039E-05
-		6.110184E-01	3.021310E-05
-		6.911519E-01	4.011924E-05
-		7.679466E-01	5.001054E-05
-		8.347245E-01	6.025029E-05
-		8.914858E-01	7.009273E-05
-		9.649416E-01	8.021975E-05
-		9.816361E-01	8.127645E-05
-		9.983306E-01	8.168671E-05
+		8.347245E-01	1.322968E-06
+		8.547579E-01	5.480042E-06
+		8.681135E-01	1.082013E-05
+		8.881469E-01	2.149785E-05
+		9.248748E-01	4.059008E-05
+		9.883139E-01	6.058945E-05
+		1.031720E+00	7.005133E-05
+		1.053422E+00	8.140125E-05
+		1.061770E+00	9.124778E-05	
+		1.068447E+00	1.019689E-04	
+		1.075125E+00	1.100923E-04
+		1.076795E+00	1.109164E-04	
+		1.088481E+00	1.032526E-04	
+		1.098498E+00	8.787967E-05	
+		1.111853E+00	6.677326E-05	
+		1.125209E+00	4.823539E-05	
+		1.145242E+00	2.574256E-05
+		1.161937E+00	1.107339E-05
+		1.178631E+00	3.708972E-06
+		1.191987E+00	1.321109E-06
 		;
 }
 
@@ -121,22 +112,21 @@ Dictionary T-Profile
 		@YUnits K;
 		
 		@Profile
-		5.141903E-01	6.053236E+02
-		5.242070E-01	9.219168E+02
-		5.342237E-01	1.322719E+03
-		5.409015E-01	1.574808E+03
-		5.459099E-01	1.712686E+03	
-		5.525876E-01	1.812854E+03
-		5.742905E-01	1.909249E+03	
-		5.943239E-01	1.956512E+03	
-		6.210351E-01	2.001372E+03	
-		6.644407E-01	2.051762E+03	
-		7.011686E-01	2.082405E+03	
-		7.445743E-01	2.110488E+03	
-		8.046745E-01	2.140766E+03	
-		8.814691E-01	2.170585E+03
-		9.649416E-01	2.190373E+03
-		9.983306E-01	2.192563E+03
-		;
+		8.347245E-01	3.222210E+02
+		8.781302E-01	5.101995E+02
+		9.148581E-01	8.042626E+02
+		9.582638E-01	1.201001E+03
+		1.008347E+00	1.624059E+03
+		1.035058E+00	1.810633E+03
+		1.050083E+00	1.902259E+03
+		1.065109E+00	1.952373E+03
+		1.076795E+00	1.901003E+03
+		1.085142E+00	1.827477E+03
+		1.105175E+00	1.603869E+03
+		1.125209E+00	1.306809E+03
+		1.141903E+00	1.014317E+03
+		1.165275E+00	6.254629E+02
+		1.191987E+00	3.679758E+02
+				;
 }
 
