@@ -788,6 +788,8 @@ double ReturnObjFunction(const Eigen::VectorXd parameters)
 			for (unsigned int i = 0; i<number_parameters; i++)
 				fMonitoringBest << std::left << std::setw(16) << parameters(i);
 			fMonitoringBest << std::endl;
+
+			WriteTables(parameters, flag);
 		}
 
 		fMonitoring << std::left << std::setw(16) << fobj_rel;
@@ -807,6 +809,8 @@ double ReturnObjFunction(const Eigen::VectorXd parameters)
 			for (unsigned int i = 0; i<number_parameters; i++)
 				fMonitoringBest << std::left << std::setw(16) << parameters(i);
 			fMonitoringBest << std::endl;
+
+			WriteTables(parameters, flag);
 		}
 
 		fMonitoring<< std::left << std::setw(16) << fobj_abs;
